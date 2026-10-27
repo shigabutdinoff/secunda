@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -26,6 +27,7 @@ func TestRunRequiresDSN(t *testing.T) {
 
 func TestRunMySQLUnavailable(t *testing.T) {
 	t.Setenv("DATABASE_DSN", "u:p@tcp("+dead+")/app?timeout=1s")
+	t.Setenv("JWT_SECRET", "test-secret")
 	os.Args = []string{"server"}
 	if err := run(context.Background()); err == nil {
 		t.Fatal("ожидалась ошибка пинга MySQL")
@@ -48,9 +50,20 @@ func TestHealthUnavailable(t *testing.T) {
 	defer func() { _ = rdb.Close() }()
 
 	rec := httptest.NewRecorder()
-	router(db, rdb).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/health", nil))
+	router(db, rdb, "test-secret").ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/health", nil))
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Fatalf("code = %d, want 503", rec.Code)
+	}
+}
+
+func TestAuthRoutes(t *testing.T) {
+	r := router(nil, nil, "test-secret")
+	for _, path := range []string{"/api/v1/register", "/api/v1/login"} {
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, path, strings.NewReader(`{"email":`)))
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("POST %s status = %d, body = %s; want 400", path, rec.Code, rec.Body)
+		}
 	}
 }
 
@@ -68,6 +81,7 @@ func TestRunServesAndStops(t *testing.T) {
 	_ = l.Close()
 	t.Setenv("ADDRESS", addr)
 	t.Setenv("DATABASE_DSN", dsn)
+	t.Setenv("JWT_SECRET", "test-secret")
 	t.Setenv("REDIS_ADDR", redisAddr)
 	t.Setenv("MIGRATIONS_PATH", "../../migrations")
 	os.Args = []string{"server"}

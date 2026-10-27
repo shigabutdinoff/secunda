@@ -12,8 +12,10 @@ import (
 
 // Config — настройки сервиса.
 type Config struct {
-	Address        string `env:"ADDRESS"`
-	DatabaseDSN    string `env:"DATABASE_DSN"`
+	Address     string `env:"ADDRESS"`
+	DatabaseDSN string `env:"DATABASE_DSN"`
+	// JWTSecret — секрет для подписи JWT.
+	JWTSecret      string `env:"JWT_SECRET"`
 	RedisAddr      string `env:"REDIS_ADDR"`
 	MigrationsPath string `env:"MIGRATIONS_PATH"`
 }
@@ -24,6 +26,7 @@ func Parse(args []string) (Config, error) {
 	fs := flag.NewFlagSet("server", flag.ContinueOnError)
 	fs.StringVar(&cfg.Address, "a", ":8080", "адрес HTTP-сервера")
 	fs.StringVar(&cfg.DatabaseDSN, "d", "", "DSN MySQL")
+	fs.StringVar(&cfg.JWTSecret, "j", "", "секрет JWT")
 	fs.StringVar(&cfg.RedisAddr, "r", "localhost:6379", "адрес Redis")
 	fs.StringVar(&cfg.MigrationsPath, "m", "migrations", "каталог миграций")
 	if err := fs.Parse(args); err != nil {
@@ -43,6 +46,9 @@ func Parse(args []string) (Config, error) {
 
 	if cfg.DatabaseDSN == "" {
 		return Config{}, errors.New("DATABASE_DSN не задан")
+	}
+	if cfg.JWTSecret == "" {
+		return Config{}, errors.New("JWT_SECRET не задан")
 	}
 	return cfg, nil
 }

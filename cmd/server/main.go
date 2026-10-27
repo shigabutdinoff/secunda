@@ -24,6 +24,7 @@ import (
 	"github.com/redis/go-redis/v9"
 
 	"github.com/shigabutdinoff/secunda/internal/config"
+	"github.com/shigabutdinoff/secunda/internal/httpapi"
 )
 
 const grace = 10 * time.Second
@@ -67,7 +68,7 @@ func run(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("listen %s: %w", cfg.Address, err)
 	}
-	srv := &http.Server{Handler: router(db, rdb), ReadHeaderTimeout: 10 * time.Second}
+	srv := &http.Server{Handler: router(db, rdb, cfg.JWTSecret), ReadHeaderTimeout: 10 * time.Second}
 	log.Printf("Сервер слушает %s", cfg.Address)
 	return serve(ctx, srv, l, grace)
 }
@@ -85,9 +86,12 @@ func migrateUp(path, dsn string) error {
 	return nil
 }
 
-func router(db *sql.DB, rdb *redis.Client) chi.Router {
+func router(db *sql.DB, rdb *redis.Client, jwtSecret string) chi.Router {
 	r := chi.NewRouter()
 	r.Use(middleware.Recoverer)
+	handler := httpapi.NewHandler(db, jwtSecret)
+	r.Post("/api/v1/register", handler.Register)
+	r.Post("/api/v1/login", handler.Login)
 	r.Get("/health", func(w http.ResponseWriter, r *http.Request) {
 		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 		defer cancel()
