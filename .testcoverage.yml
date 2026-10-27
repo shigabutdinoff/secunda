@@ -1,0 +1,10 @@
+profile: cover.out
+threshold:
+  package: 70
+exclude:
+  paths:
+    - '\.pb(\.gw)?\.go$'
+    - '_string\.go$'
+    - '[._]gen\.go$'
+    - '(^|/)zz_generated'
+    - '(^|/)mock_[^/]*\.go$'

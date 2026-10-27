@@ -1,0 +1,38 @@
+services:
+  app:
+    build: .
+    environment:
+      ADDRESS: :8080
+      DATABASE_DSN: ${MYSQL_USER}:${MYSQL_PASSWORD}@tcp(mysql:3306)/${MYSQL_DATABASE}?parseTime=true
+      REDIS_ADDR: redis:6379
+      MIGRATIONS_PATH: migrations
+    ports: ["${APP_PORT:-8080}:8080"]
+    depends_on:
+      mysql: {condition: service_healthy}
+      redis: {condition: service_healthy}
+
+  mysql:
+    image: mysql:8.4
+    environment:
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+    volumes: [mysql:/var/lib/mysql]
+    healthcheck:
+      # TCP, а не сокет: во время init временный сервер без сети уже отвечает на сокет
+      test: [CMD-SHELL, "mysqladmin ping -h 127.0.0.1 -u$$MYSQL_USER -p$$MYSQL_PASSWORD --silent"]
+      interval: 2s
+      retries: 60
+
+  redis:
+    image: redis:8-alpine
+    volumes: [redis:/data]
+    healthcheck:
+      test: [CMD, redis-cli, ping]
+      interval: 2s
+      retries: 30
+
+volumes:
+  mysql:
+  redis:

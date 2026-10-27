@@ -1,0 +1,29 @@
+version: "2"
+linters:
+  default: standard
+  enable:
+    - bodyclose
+    - errcheck
+    - forbidigo
+    - gochecknoglobals
+    - gocritic
+    - revive
+    - unused
+  settings:
+    forbidigo:
+      forbid:
+        - pattern: ^os\.Exit$
+        - pattern: ^panic$
+    gocritic:
+      disable-all: true
+      enabled-checks:
+        - commentedOutCode
+    revive:
+      rules:
+        - name: package-comments
+        - name: exported
+        - name: deep-exit
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
+  uniq-by-line: false

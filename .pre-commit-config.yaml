@@ -1,0 +1,13 @@
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: detect-private-key
+      - id: check-added-large-files
+  - repo: local
+    hooks:
+      - id: forbidden-files
+        name: собранные программы, сертификаты и ключи
+        language: fail
+        entry: файлу не место в репозитории
+        files: (^|/)(server|worker)(-[^/]*)?$|\.(pem|crt|cer|key|p12|pfx|exe)$
