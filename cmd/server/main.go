@@ -92,6 +92,14 @@ func router(db *sql.DB, rdb *redis.Client, jwtSecret string) chi.Router {
 	handler := httpapi.NewHandler(db, jwtSecret)
 	r.Post("/api/v1/register", handler.Register)
 	r.Post("/api/v1/login", handler.Login)
+	r.Route("/api/v1/teams", func(r chi.Router) {
+		r.Use(handler.Authenticate)
+		r.Post("/", handler.CreateTeam)
+		r.Get("/", handler.ListTeams)
+		r.Post("/{id}/invite", handler.InviteMember)
+		r.Patch("/{id}/members/{user_id}", handler.UpdateMemberRole)
+		r.Delete("/{id}/members/{user_id}", handler.RemoveMember)
+	})
 	r.Get("/health", func(w http.ResponseWriter, r *http.Request) {
 		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 		defer cancel()

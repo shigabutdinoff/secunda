@@ -67,6 +67,23 @@ func TestAuthRoutes(t *testing.T) {
 	}
 }
 
+func TestTeamRoutesRequireAuthentication(t *testing.T) {
+	r := router(nil, nil, "test-secret")
+	for _, tc := range []struct{ method, path string }{
+		{http.MethodPost, "/api/v1/teams"},
+		{http.MethodGet, "/api/v1/teams"},
+		{http.MethodPost, "/api/v1/teams/1/invite"},
+		{http.MethodPatch, "/api/v1/teams/1/members/2"},
+		{http.MethodDelete, "/api/v1/teams/1/members/2"},
+	} {
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, httptest.NewRequest(tc.method, tc.path, nil))
+		if rec.Code != http.StatusUnauthorized {
+			t.Errorf("%s %s status = %d; want 401", tc.method, tc.path, rec.Code)
+		}
+	}
+}
+
 // TestRunServesAndStops нужны живые MySQL и Redis: TEST_DATABASE_DSN и TEST_REDIS_ADDR.
 func TestRunServesAndStops(t *testing.T) {
 	dsn, redisAddr := os.Getenv("TEST_DATABASE_DSN"), os.Getenv("TEST_REDIS_ADDR")

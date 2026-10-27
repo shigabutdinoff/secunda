@@ -32,10 +32,10 @@ func TestIssueToken(t *testing.T) {
 	if !token.Valid || claims.UserID != 42 {
 		t.Fatalf("token.Valid = %v, UserID = %d; want true, 42", token.Valid, claims.UserID)
 	}
-	if !claims.IssuedAt.Time.Equal(now) {
+	if !claims.IssuedAt.Equal(now) {
 		t.Errorf("iat = %v, want %v", claims.IssuedAt.Time, now)
 	}
-	if !claims.ExpiresAt.Time.Equal(now.Add(24 * time.Hour)) {
+	if !claims.ExpiresAt.Equal(now.Add(24 * time.Hour)) {
 		t.Errorf("exp = %v, want %v", claims.ExpiresAt.Time, now.Add(24*time.Hour))
 	}
 }

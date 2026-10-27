@@ -1,3 +1,4 @@
+// Package httpapi реализует HTTP API сервиса управления задачами.
 package httpapi
 
 import (

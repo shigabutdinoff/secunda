@@ -1,12 +1,10 @@
 package httpapi
 
 import (
-	"database/sql"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"strings"
 	"testing"
 	"time"
@@ -17,18 +15,7 @@ import (
 )
 
 func TestRegisterLoginIntegration(t *testing.T) {
-	dsn := os.Getenv("TEST_DATABASE_DSN")
-	if dsn == "" {
-		t.Skip("TEST_DATABASE_DSN не задан")
-	}
-	db, err := sql.Open("mysql", dsn)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = db.Close() }()
-	if err := db.PingContext(t.Context()); err != nil {
-		t.Fatalf("ping MySQL: %v", err)
-	}
+	db := openIntegrationTestDB(t)
 
 	h := NewHandler(db, testSecret)
 	email := fmt.Sprintf("auth-%d@example.com", time.Now().UnixNano())
