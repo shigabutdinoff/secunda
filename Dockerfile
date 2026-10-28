@@ -13,4 +13,5 @@ WORKDIR /app
 COPY --from=builder /out/server .
 COPY migrations ./migrations
 USER 65534:65534
+EXPOSE 8080
 ENTRYPOINT ["./server"]

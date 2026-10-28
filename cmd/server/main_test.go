@@ -3,14 +3,19 @@ package main
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/redis/go-redis/v9"
+	"go.uber.org/zap"
+
+	"github.com/shigabutdinoff/secunda/internal/config"
 )
 
 // dead — адрес, где гарантированно никто не слушает.
@@ -26,6 +31,7 @@ func TestRunRequiresDSN(t *testing.T) {
 
 func TestRunMySQLUnavailable(t *testing.T) {
 	t.Setenv("DATABASE_DSN", "u:p@tcp("+dead+")/app?timeout=1s")
+	t.Setenv("JWT_SECRET", "test-secret")
 	os.Args = []string{"server"}
 	if err := run(context.Background()); err == nil {
 		t.Fatal("ожидалась ошибка пинга MySQL")
@@ -48,9 +54,58 @@ func TestHealthUnavailable(t *testing.T) {
 	defer func() { _ = rdb.Close() }()
 
 	rec := httptest.NewRecorder()
-	router(db, rdb).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/health", nil))
+	router(db, rdb, testConfig(), zap.NewNop()).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/health", nil))
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Fatalf("code = %d, want 503", rec.Code)
+	}
+	if want := `{"mysql":"unavailable","redis":"unavailable","status":"unavailable"}`; strings.TrimSpace(rec.Body.String()) != want {
+		t.Fatalf("body = %s, want %s", rec.Body, want)
+	}
+}
+
+func TestPingWithRetry(t *testing.T) {
+	db, err := sql.Open("mysql", "u:p@tcp("+dead+")/app?timeout=1s")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	if err = pingWithRetry(context.Background(), db, []time.Duration{time.Millisecond, time.Millisecond}, zap.NewNop()); err == nil {
+		t.Fatal("ожидалась ошибка после всех повторов")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err = pingWithRetry(ctx, db, []time.Duration{time.Hour}, zap.NewNop()); !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v, want context.Canceled", err)
+	}
+}
+
+func TestAuthRoutes(t *testing.T) {
+	r := router(nil, nil, testConfig(), zap.NewNop())
+	for _, path := range []string{"/api/v1/register", "/api/v1/login"} {
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, path, strings.NewReader(`{"email":`)))
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("POST %s status = %d, body = %s; want 400", path, rec.Code, rec.Body)
+		}
+	}
+}
+
+func TestTeamRoutesRequireAuthentication(t *testing.T) {
+	r := router(nil, nil, testConfig(), zap.NewNop())
+	for _, tc := range []struct{ method, path string }{
+		{http.MethodPost, "/api/v1/teams"},
+		{http.MethodGet, "/api/v1/teams"},
+		{http.MethodPost, "/api/v1/teams/1/invite"},
+		{http.MethodPatch, "/api/v1/teams/1/members/2"},
+		{http.MethodDelete, "/api/v1/teams/1/members/2"},
+		{http.MethodPost, "/api/v1/tasks"},
+		{http.MethodGet, "/api/v1/tasks"},
+	} {
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, httptest.NewRequest(tc.method, tc.path, nil))
+		if rec.Code != http.StatusUnauthorized {
+			t.Errorf("%s %s status = %d; want 401", tc.method, tc.path, rec.Code)
+		}
 	}
 }
 
@@ -68,6 +123,7 @@ func TestRunServesAndStops(t *testing.T) {
 	_ = l.Close()
 	t.Setenv("ADDRESS", addr)
 	t.Setenv("DATABASE_DSN", dsn)
+	t.Setenv("JWT_SECRET", "test-secret")
 	t.Setenv("REDIS_ADDR", redisAddr)
 	t.Setenv("MIGRATIONS_PATH", "../../migrations")
 	os.Args = []string{"server"}
@@ -113,4 +169,8 @@ func TestServeStopsOnCancel(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("serve не остановился")
 	}
+}
+
+func testConfig() config.Config {
+	return config.Config{JWTSecret: "test-secret", RateLimitRPS: 10, RateLimitBurst: 20}
 }
