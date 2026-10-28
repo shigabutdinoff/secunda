@@ -22,6 +22,8 @@ docker compose down -v         # остановка с удалением дан
 | `DATABASE_DSN`    | `-d` | обязательна, с `parseTime=true` |
 | `JWT_SECRET`      | `-j` | обязательна      |
 | `REDIS_ADDR`      | `-r` | `localhost:6379` |
+| `REDIS_BREAKER_FAILURES` | `-rf` | `5`       |
+| `REDIS_BREAKER_TIMEOUT`  | `-rt` | `30s`     |
 | `MIGRATIONS_PATH` | `-m` | `migrations`     |
 | `LOG_LEVEL`       | `-l` | `info`           |
 

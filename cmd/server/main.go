@@ -26,6 +26,7 @@ import (
 	"go.uber.org/zap/zapcore"
 
 	"github.com/shigabutdinoff/secunda/api"
+	"github.com/shigabutdinoff/secunda/internal/cachebreaker"
 	"github.com/shigabutdinoff/secunda/internal/config"
 	"github.com/shigabutdinoff/secunda/internal/httpapi"
 )
@@ -77,6 +78,7 @@ func run(ctx context.Context) error {
 
 	rdb := redis.NewClient(&redis.Options{Addr: cfg.RedisAddr})
 	defer func() { _ = rdb.Close() }()
+	rdb.AddHook(cachebreaker.New(uint32(cfg.RedisBreakerFailures), cfg.RedisBreakerTimeout))
 
 	l, err := net.Listen("tcp", cfg.Address)
 	if err != nil {
