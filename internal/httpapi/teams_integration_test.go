@@ -17,7 +17,7 @@ import (
 
 func TestTeamsIntegration(t *testing.T) {
 	db := openTeamTestDB(t)
-	h := NewHandler(db, testSecret)
+	h := NewHandler(db, nil, testSecret)
 	r := chi.NewRouter()
 	r.Route("/api/v1/teams", func(r chi.Router) {
 		r.Use(h.Authenticate)
@@ -140,7 +140,7 @@ func TestTeamsIntegration(t *testing.T) {
 
 func TestCreateTeamRollbackIntegration(t *testing.T) {
 	db := openTeamTestDB(t)
-	h := NewHandler(db, testSecret)
+	h := NewHandler(db, nil, testSecret)
 	owner := createTeamTestUser(t, db, "rollback")
 	defer func() { _, _ = db.ExecContext(t.Context(), "DELETE FROM users WHERE id = ?", owner) }()
 	trigger := fmt.Sprintf("reject_team_member_%d", time.Now().UnixNano())

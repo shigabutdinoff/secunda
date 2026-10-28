@@ -14,19 +14,21 @@ import (
 
 	"github.com/go-sql-driver/mysql"
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/redis/go-redis/v9"
 	"golang.org/x/crypto/bcrypt"
 )
 
 // Handler содержит зависимости HTTP-обработчиков.
 type Handler struct {
 	db        *sql.DB
+	cache     *redis.Client
 	jwtSecret []byte
 	now       func() time.Time
 }
 
-// NewHandler создаёт Handler с указанными базой данных и секретом JWT.
-func NewHandler(db *sql.DB, jwtSecret string) *Handler {
-	return &Handler{db: db, jwtSecret: []byte(jwtSecret), now: time.Now}
+// NewHandler создаёт Handler с базой данных, Redis и секретом JWT.
+func NewHandler(db *sql.DB, cache *redis.Client, jwtSecret string) *Handler {
+	return &Handler{db: db, cache: cache, jwtSecret: []byte(jwtSecret), now: time.Now}
 }
 
 type authRequest struct {

@@ -89,9 +89,14 @@ func migrateUp(path, dsn string) error {
 func router(db *sql.DB, rdb *redis.Client, jwtSecret string) chi.Router {
 	r := chi.NewRouter()
 	r.Use(middleware.Recoverer)
-	handler := httpapi.NewHandler(db, jwtSecret)
+	handler := httpapi.NewHandler(db, rdb, jwtSecret)
 	r.Post("/api/v1/register", handler.Register)
 	r.Post("/api/v1/login", handler.Login)
+	r.Route("/api/v1/tasks", func(r chi.Router) {
+		r.Use(handler.Authenticate)
+		r.Post("/", handler.CreateTask)
+		r.Get("/", handler.ListTasks)
+	})
 	r.Route("/api/v1/teams", func(r chi.Router) {
 		r.Use(handler.Authenticate)
 		r.Post("/", handler.CreateTeam)

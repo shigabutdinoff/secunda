@@ -75,6 +75,8 @@ func TestTeamRoutesRequireAuthentication(t *testing.T) {
 		{http.MethodPost, "/api/v1/teams/1/invite"},
 		{http.MethodPatch, "/api/v1/teams/1/members/2"},
 		{http.MethodDelete, "/api/v1/teams/1/members/2"},
+		{http.MethodPost, "/api/v1/tasks"},
+		{http.MethodGet, "/api/v1/tasks"},
 	} {
 		rec := httptest.NewRecorder()
 		r.ServeHTTP(rec, httptest.NewRequest(tc.method, tc.path, nil))

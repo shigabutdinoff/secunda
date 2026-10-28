@@ -17,7 +17,7 @@ import (
 func TestRegisterLoginIntegration(t *testing.T) {
 	db := openIntegrationTestDB(t)
 
-	h := NewHandler(db, testSecret)
+	h := NewHandler(db, nil, testSecret)
 	email := fmt.Sprintf("auth-%d@example.com", time.Now().UnixNano())
 	defer func() { _, _ = db.ExecContext(t.Context(), "DELETE FROM users WHERE email = ?", email) }()
 	body := fmt.Sprintf(`{"email":%q,"password":"correct-password","name":"Test User"}`, email)

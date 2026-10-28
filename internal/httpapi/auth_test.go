@@ -14,7 +14,7 @@ const testSecret = "test-secret"
 
 func TestIssueToken(t *testing.T) {
 	now := time.Date(2026, time.October, 27, 12, 0, 0, 0, time.UTC)
-	h := NewHandler(nil, testSecret)
+	h := NewHandler(nil, nil, testSecret)
 	h.now = func() time.Time { return now }
 
 	tokenString, err := h.issueToken(42)
@@ -42,7 +42,7 @@ func TestIssueToken(t *testing.T) {
 
 func TestAuthenticate(t *testing.T) {
 	now := time.Date(2026, time.October, 27, 12, 0, 0, 0, time.UTC)
-	h := NewHandler(nil, testSecret)
+	h := NewHandler(nil, nil, testSecret)
 	h.now = func() time.Time { return now }
 	validToken, err := h.issueToken(42)
 	if err != nil {
@@ -135,7 +135,7 @@ func TestRegisterValidation(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			h := NewHandler(nil, testSecret)
+			h := NewHandler(nil, nil, testSecret)
 			rec := httptest.NewRecorder()
 			h.Register(rec, httptest.NewRequest(http.MethodPost, "/api/v1/register", strings.NewReader(tt.body)))
 			if rec.Code != http.StatusBadRequest {
@@ -158,7 +158,7 @@ func TestLoginValidation(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			h := NewHandler(nil, testSecret)
+			h := NewHandler(nil, nil, testSecret)
 			rec := httptest.NewRecorder()
 			h.Login(rec, httptest.NewRequest(http.MethodPost, "/api/v1/login", strings.NewReader(tt.body)))
 			if rec.Code != http.StatusBadRequest {
