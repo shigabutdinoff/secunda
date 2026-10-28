@@ -13,7 +13,7 @@ import (
 const testSecret = "test-secret"
 
 func TestIssueToken(t *testing.T) {
-	now := time.Date(2026, time.October, 27, 12, 0, 0, 0, time.UTC)
+	now := time.Now().UTC().Truncate(time.Second)
 	h := NewHandler(nil, nil, testSecret)
 	h.now = func() time.Time { return now }
 
@@ -41,7 +41,7 @@ func TestIssueToken(t *testing.T) {
 }
 
 func TestAuthenticate(t *testing.T) {
-	now := time.Date(2026, time.October, 27, 12, 0, 0, 0, time.UTC)
+	now := time.Now().UTC().Truncate(time.Second)
 	h := NewHandler(nil, nil, testSecret)
 	h.now = func() time.Time { return now }
 	validToken, err := h.issueToken(42)

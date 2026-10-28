@@ -108,6 +108,7 @@ func router(db *sql.DB, rdb *redis.Client, jwtSecret string) chi.Router {
 		r.Post("/{id}/invite", handler.InviteMember)
 		r.Patch("/{id}/members/{user_id}", handler.UpdateMemberRole)
 		r.Delete("/{id}/members/{user_id}", handler.RemoveMember)
+		r.Get("/{team_id}/stats", handler.GetTeamStats)
 	})
 	r.Get("/health", func(w http.ResponseWriter, r *http.Request) {
 		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
