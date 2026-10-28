@@ -195,10 +195,11 @@ func TestListTasksIntegration(t *testing.T) {
 		if rec.Code != http.StatusOK {
 			t.Fatalf("list %q = (%d, %s)", tc.query, rec.Code, rec.Body)
 		}
-		var tasks []taskResponse
-		if err := json.Unmarshal(rec.Body.Bytes(), &tasks); err != nil {
+		var page taskListResponse
+		if err := json.Unmarshal(rec.Body.Bytes(), &page); err != nil {
 			t.Fatal(err)
 		}
+		tasks := page.Items
 		if len(tasks) != len(tc.ids) {
 			t.Fatalf("list %q = %s; want ids %v", tc.query, rec.Body, tc.ids)
 		}
@@ -210,6 +211,39 @@ func TestListTasksIntegration(t *testing.T) {
 	}
 	if rec := listTasksForTest(t, f, f.otherID, ""); rec.Code != http.StatusNotFound {
 		t.Fatalf("outsider = (%d, %s); want 404", rec.Code, rec.Body)
+	}
+}
+
+func TestListTasksCursorIntegration(t *testing.T) {
+	f := newTaskTestFixture(t, nil)
+	var want []uint64
+	for i := range 5 {
+		want = append([]uint64{createTaskForTest(t, f, fmt.Sprint("Task ", i), f.memberID).ID}, want...)
+	}
+	if _, err := f.db.ExecContext(t.Context(), "UPDATE tasks SET created_at = '2026-01-01 00:00:00' WHERE team_id = ?", f.teamID); err != nil {
+		t.Fatal(err)
+	}
+	var got []uint64
+	query := "&limit=2"
+	for pages := 0; ; pages++ {
+		if pages > 5 {
+			t.Fatalf("too many pages, got ids %v", got)
+		}
+		rec := listTasksForTest(t, f, f.memberID, query)
+		var page taskListResponse
+		if err := json.Unmarshal(rec.Body.Bytes(), &page); rec.Code != http.StatusOK || err != nil {
+			t.Fatalf("page %q = (%d, %s)", query, rec.Code, rec.Body)
+		}
+		for _, task := range page.Items {
+			got = append(got, task.ID)
+		}
+		if page.NextCursor == nil {
+			break
+		}
+		query = "&limit=2&cursor=" + *page.NextCursor
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("ids = %v, want %v", got, want)
 	}
 }
 
@@ -235,8 +269,8 @@ func TestTaskListCacheIntegration(t *testing.T) {
 		t.Fatal(err)
 	}
 	rec := listTasksForTest(t, f, f.memberID, "")
-	var cached []taskResponse
-	if err := json.Unmarshal(rec.Body.Bytes(), &cached); err != nil || len(cached) != 1 || cached[0].ID != first.ID {
+	var cached taskListResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &cached); err != nil || len(cached.Items) != 1 || cached.Items[0].ID != first.ID {
 		t.Fatalf("cached list = %s, error = %v", rec.Body, err)
 	}
 	keys, err := cache.Keys(t.Context(), "tasks:"+fmt.Sprint(f.teamID)+":v*").Result()
@@ -249,10 +283,10 @@ func TestTaskListCacheIntegration(t *testing.T) {
 	}
 	second := createTaskForTest(t, f, "After invalidation", f.memberID)
 	staleRequest := httptest.NewRequest(http.MethodGet, "/api/v1/tasks", nil)
-	f.handler.storeTaskList(staleRequest, f.teamID, 0, fmt.Sprintf("tasks:%d:v0::0:20:0", f.teamID), cached)
+	f.handler.storeTaskList(staleRequest, f.teamID, 0, fmt.Sprintf("tasks:%d:v0::0:20:0:", f.teamID), cached)
 	rec = listTasksForTest(t, f, f.memberID, "")
-	var refreshed []taskResponse
-	if err := json.Unmarshal(rec.Body.Bytes(), &refreshed); err != nil || len(refreshed) != 3 || refreshed[0].ID != second.ID {
+	var refreshed taskListResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &refreshed); err != nil || len(refreshed.Items) != 3 || refreshed.Items[0].ID != second.ID {
 		t.Fatalf("refreshed list = %s, error = %v", rec.Body, err)
 	}
 	ctx, cancel := context.WithCancel(t.Context())
@@ -456,8 +490,8 @@ func TestUpdateTaskCacheIntegration(t *testing.T) {
 		t.Fatalf("update = (%d, %s)", rec.Code, rec.Body)
 	}
 	rec := listTasksForTest(t, f, f.memberID, "")
-	var tasks []taskResponse
-	if err := json.Unmarshal(rec.Body.Bytes(), &tasks); err != nil || len(tasks) != 1 || tasks[0].Title != "Cached after" || tasks[0].Version != 2 {
+	var page taskListResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &page); err != nil || len(page.Items) != 1 || page.Items[0].Title != "Cached after" || page.Items[0].Version != 2 {
 		t.Fatalf("refreshed list = %s, error = %v", rec.Body, err)
 	}
 }

@@ -3,6 +3,7 @@ package httpapi
 import (
 	"context"
 	"database/sql"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -43,6 +44,15 @@ type taskListFilter struct {
 	assigneeID uint64
 	limit      uint64
 	offset     uint64
+	cursor     string
+	afterTime  time.Time
+	afterID    uint64
+}
+
+// taskListResponse — страница списка задач; next_cursor равен null на последней странице.
+type taskListResponse struct {
+	Items      []taskResponse `json:"items"`
+	NextCursor *string        `json:"next_cursor"`
 }
 
 // CreateTask создаёт задачу и первую запись её истории.
@@ -144,8 +154,9 @@ func (h *Handler) CreateTask(w http.ResponseWriter, r *http.Request) {
 // @Param status query string false "Статус" Enums(todo, in_progress, done)
 // @Param assignee_id query int false "Исполнитель"
 // @Param limit query int false "Размер страницы, 1–100" default(20)
-// @Param offset query int false "Смещение" default(0)
-// @Success 200 {array} taskResponse
+// @Param offset query int false "Смещение, нельзя вместе с cursor" default(0)
+// @Param cursor query string false "next_cursor из предыдущей страницы"
+// @Success 200 {object} taskListResponse
 // @Failure 400 {object} object{error=string} "invalid request"
 // @Failure 401 {object} object{error=string} "unauthorized"
 // @Failure 404 {object} object{error=string} "team not found"
@@ -179,11 +190,11 @@ func (h *Handler) ListTasks(w http.ResponseWriter, r *http.Request) {
 			loggerFrom(r.Context()).Warn("read task list cache", zap.Error(err))
 		}
 		if err == nil {
-			var tasks []taskResponse
-			if err := json.Unmarshal(cached, &tasks); err != nil {
+			var page taskListResponse
+			if err := json.Unmarshal(cached, &page); err != nil {
 				loggerFrom(r.Context()).Warn("decode task list cache", zap.Error(err))
 			} else {
-				writeJSON(w, http.StatusOK, tasks)
+				writeJSON(w, http.StatusOK, page)
 				return
 			}
 		}
@@ -199,8 +210,12 @@ func (h *Handler) ListTasks(w http.ResponseWriter, r *http.Request) {
 		query.WriteString(" AND assignee_id = ?")
 		args = append(args, filter.assigneeID)
 	}
+	if filter.cursor != "" {
+		query.WriteString(" AND (created_at, id) < (?, ?)")
+		args = append(args, filter.afterTime, filter.afterID)
+	}
 	query.WriteString(" ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?")
-	args = append(args, filter.limit, filter.offset)
+	args = append(args, filter.limit+1, filter.offset)
 	rows, err := h.db.QueryContext(r.Context(), query.String(), args...)
 	if err != nil {
 		internalError(w, r, err)
@@ -220,12 +235,19 @@ func (h *Handler) ListTasks(w http.ResponseWriter, r *http.Request) {
 		internalError(w, r, err)
 		return
 	}
-	h.storeTaskList(r, filter.teamID, generation, cacheKey, tasks)
-	writeJSON(w, http.StatusOK, tasks)
+	page := taskListResponse{Items: tasks}
+	if uint64(len(tasks)) > filter.limit {
+		page.Items = tasks[:filter.limit]
+		last := page.Items[filter.limit-1]
+		next := base64.RawURLEncoding.EncodeToString([]byte(last.CreatedAt.UTC().Format(time.RFC3339Nano) + "|" + strconv.FormatUint(last.ID, 10)))
+		page.NextCursor = &next
+	}
+	h.storeTaskList(r, filter.teamID, generation, cacheKey, page)
+	writeJSON(w, http.StatusOK, page)
 }
 
 func taskListCacheKey(filter taskListFilter, generation uint64) string {
-	return fmt.Sprintf("tasks:%d:v%d:%s:%d:%d:%d", filter.teamID, generation, filter.status, filter.assigneeID, filter.limit, filter.offset)
+	return fmt.Sprintf("tasks:%d:v%d:%s:%d:%d:%d:%s", filter.teamID, generation, filter.status, filter.assigneeID, filter.limit, filter.offset, filter.cursor)
 }
 
 func (h *Handler) taskCacheGeneration(ctx context.Context, teamID uint64) uint64 {
@@ -239,11 +261,11 @@ func (h *Handler) taskCacheGeneration(ctx context.Context, teamID uint64) uint64
 	return generation
 }
 
-func (h *Handler) storeTaskList(r *http.Request, teamID, generation uint64, cacheKey string, tasks []taskResponse) {
+func (h *Handler) storeTaskList(r *http.Request, teamID, generation uint64, cacheKey string, page taskListResponse) {
 	if h.cache == nil || h.taskCacheGeneration(r.Context(), teamID) != generation {
 		return
 	}
-	cached, err := json.Marshal(tasks)
+	cached, err := json.Marshal(page)
 	if err != nil {
 		return
 	}
@@ -288,5 +310,21 @@ func parseTaskListFilter(w http.ResponseWriter, r *http.Request) (taskListFilter
 			return filter, false
 		}
 	}
-	return filter, true
+	filter.cursor = query.Get("cursor")
+	if filter.cursor == "" {
+		return filter, true
+	}
+	raw, err := base64.RawURLEncoding.DecodeString(filter.cursor)
+	createdAt, id, found := strings.Cut(string(raw), "|")
+	if err == nil && found && query.Get("offset") == "" {
+		filter.afterTime, err = time.Parse(time.RFC3339Nano, createdAt)
+		if err == nil {
+			filter.afterID, err = strconv.ParseUint(id, 10, 64)
+		}
+		if err == nil {
+			return filter, true
+		}
+	}
+	writeError(w, http.StatusBadRequest, "invalid request")
+	return filter, false
 }

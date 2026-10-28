@@ -192,8 +192,14 @@
                     {
                         "type": "integer",
                         "default": 0,
-                        "description": "Смещение",
+                        "description": "Смещение, нельзя вместе с cursor",
                         "name": "offset",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "next_cursor из предыдущей страницы",
+                        "name": "cursor",
                         "in": "query"
                     }
                 ],
@@ -201,10 +207,7 @@
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "type": "array",
-                            "items": {
-                                "$ref": "#/definitions/httpapi.taskResponse"
-                            }
+                            "$ref": "#/definitions/httpapi.taskListResponse"
                         }
                     },
                     "400": {
@@ -1232,6 +1235,20 @@
                 },
                 "task_id": {
                     "type": "integer"
+                }
+            }
+        },
+        "httpapi.taskListResponse": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/httpapi.taskResponse"
+                    }
+                },
+                "next_cursor": {
+                    "type": "string"
                 }
             }
         },

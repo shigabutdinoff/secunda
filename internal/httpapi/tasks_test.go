@@ -93,12 +93,13 @@ func TestTaskListCacheKey(t *testing.T) {
 		generation uint64
 		want       string
 	}{
-		{name: "defaults", filter: base, want: "tasks:7:v0::0:20:0"},
-		{name: "team", filter: taskListFilter{teamID: 8, limit: 20}, want: "tasks:8:v0::0:20:0"},
-		{name: "generation", filter: base, generation: 3, want: "tasks:7:v3::0:20:0"},
-		{name: "status", filter: taskListFilter{teamID: 7, status: "done", limit: 20}, want: "tasks:7:v0:done:0:20:0"},
-		{name: "assignee", filter: taskListFilter{teamID: 7, assigneeID: 42, limit: 20}, want: "tasks:7:v0::42:20:0"},
-		{name: "pagination", filter: taskListFilter{teamID: 7, limit: 50, offset: 10}, want: "tasks:7:v0::0:50:10"},
+		{name: "defaults", filter: base, want: "tasks:7:v0::0:20:0:"},
+		{name: "team", filter: taskListFilter{teamID: 8, limit: 20}, want: "tasks:8:v0::0:20:0:"},
+		{name: "generation", filter: base, generation: 3, want: "tasks:7:v3::0:20:0:"},
+		{name: "status", filter: taskListFilter{teamID: 7, status: "done", limit: 20}, want: "tasks:7:v0:done:0:20:0:"},
+		{name: "assignee", filter: taskListFilter{teamID: 7, assigneeID: 42, limit: 20}, want: "tasks:7:v0::42:20:0:"},
+		{name: "pagination", filter: taskListFilter{teamID: 7, limit: 50, offset: 10}, want: "tasks:7:v0::0:50:10:"},
+		{name: "cursor", filter: taskListFilter{teamID: 7, limit: 20, cursor: "YmFkfDE"}, want: "tasks:7:v0::0:20:0:YmFkfDE"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if got := taskListCacheKey(tc.filter, tc.generation); got != tc.want {
@@ -116,7 +117,7 @@ func TestTaskCacheLogsRedisErrors(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/tasks", nil)
 	req = req.WithContext(context.WithValue(req.Context(), requestLogKey{}, &requestLog{logger: zap.New(core)}))
 	h.taskCacheGeneration(req.Context(), 7)
-	h.storeTaskList(req, 7, 0, "tasks:7:v0::0:20:0", nil)
+	h.storeTaskList(req, 7, 0, "tasks:7:v0::0:20:0:", taskListResponse{})
 	h.invalidateTaskLists(req, 7)
 	for _, operation := range []string{"read task cache generation", "store task list cache", "invalidate task list cache"} {
 		if logs.FilterMessage(operation).Len() == 0 {
@@ -131,6 +132,9 @@ func TestListTasksValidation(t *testing.T) {
 		"?team_id=1&assignee_id=0", "?team_id=1&assignee_id=bad",
 		"?team_id=1&limit=0", "?team_id=1&limit=101", "?team_id=1&limit=bad",
 		"?team_id=1&offset=-1", "?team_id=1&offset=bad",
+		"?team_id=1&cursor=!!", "?team_id=1&cursor=eA", "?team_id=1&cursor=YmFkfDE",
+		"?team_id=1&cursor=MjAyNi0wMS0wMVQwMDowMDowMFp8eA",
+		"?team_id=1&offset=0&cursor=MjAyNi0wMS0wMVQwMDowMDowMFp8MQ",
 	} {
 		req := httptest.NewRequest(http.MethodGet, "/api/v1/tasks"+query, nil)
 		req = req.WithContext(contextWithUserID(req, 42))

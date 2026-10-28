@@ -63,6 +63,15 @@ definitions:
       task_id:
         type: integer
     type: object
+  httpapi.taskListResponse:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/httpapi.taskResponse'
+        type: array
+      next_cursor:
+        type: string
+    type: object
   httpapi.taskResponse:
     properties:
       assignee_id:
@@ -265,19 +274,21 @@ paths:
         name: limit
         type: integer
       - default: 0
-        description: Смещение
+        description: Смещение, нельзя вместе с cursor
         in: query
         name: offset
         type: integer
+      - description: next_cursor из предыдущей страницы
+        in: query
+        name: cursor
+        type: string
       produces:
       - application/json
       responses:
         "200":
           description: OK
           schema:
-            items:
-              $ref: '#/definitions/httpapi.taskResponse'
-            type: array
+            $ref: '#/definitions/httpapi.taskListResponse'
         "400":
           description: invalid request
           schema:
