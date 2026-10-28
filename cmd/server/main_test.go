@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"database/sql"
+	"go.uber.org/zap"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -50,14 +51,14 @@ func TestHealthUnavailable(t *testing.T) {
 	defer func() { _ = rdb.Close() }()
 
 	rec := httptest.NewRecorder()
-	router(db, rdb, "test-secret").ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/health", nil))
+	router(db, rdb, "test-secret", zap.NewNop()).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/health", nil))
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Fatalf("code = %d, want 503", rec.Code)
 	}
 }
 
 func TestAuthRoutes(t *testing.T) {
-	r := router(nil, nil, "test-secret")
+	r := router(nil, nil, "test-secret", zap.NewNop())
 	for _, path := range []string{"/api/v1/register", "/api/v1/login"} {
 		rec := httptest.NewRecorder()
 		r.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, path, strings.NewReader(`{"email":`)))
@@ -68,7 +69,7 @@ func TestAuthRoutes(t *testing.T) {
 }
 
 func TestTeamRoutesRequireAuthentication(t *testing.T) {
-	r := router(nil, nil, "test-secret")
+	r := router(nil, nil, "test-secret", zap.NewNop())
 	for _, tc := range []struct{ method, path string }{
 		{http.MethodPost, "/api/v1/teams"},
 		{http.MethodGet, "/api/v1/teams"},

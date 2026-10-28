@@ -23,6 +23,7 @@ docker compose down -v         # остановка с удалением дан
 | `JWT_SECRET`      | `-j` | обязательна      |
 | `REDIS_ADDR`      | `-r` | `localhost:6379` |
 | `MIGRATIONS_PATH` | `-m` | `migrations`     |
+| `LOG_LEVEL`       | `-l` | `info`           |
 
 Переменная важнее флага. Compose берёт значения из `.env`.
 

@@ -69,7 +69,7 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 	}
 	hash, err := bcrypt.GenerateFromPassword([]byte(input.Password), bcrypt.DefaultCost)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal error")
+		internalError(w, r, err)
 		return
 	}
 	result, err := h.db.ExecContext(r.Context(),
@@ -80,12 +80,12 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusConflict, "email already exists")
 			return
 		}
-		writeError(w, http.StatusInternalServerError, "internal error")
+		internalError(w, r, err)
 		return
 	}
 	id, err := result.LastInsertId()
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal error")
+		internalError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, map[string]any{"id": id, "email": input.Email, "name": input.Name})
@@ -119,7 +119,7 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal error")
+		internalError(w, r, err)
 		return
 	}
 	if err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(input.Password)); err != nil {
@@ -127,12 +127,12 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusUnauthorized, "invalid credentials")
 			return
 		}
-		writeError(w, http.StatusInternalServerError, "internal error")
+		internalError(w, r, err)
 		return
 	}
 	token, err := h.issueToken(id)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal error")
+		internalError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"token": token})

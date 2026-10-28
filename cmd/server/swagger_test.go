@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"go.uber.org/zap"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -37,7 +38,7 @@ func TestSwaggerMatchesRoutes(t *testing.T) {
 		}
 	}
 	var routed []string
-	err = chi.Walk(router(nil, nil, "test-secret"), func(method, route string, _ http.Handler, _ ...func(http.Handler) http.Handler) error {
+	err = chi.Walk(router(nil, nil, "test-secret", zap.NewNop()), func(method, route string, _ http.Handler, _ ...func(http.Handler) http.Handler) error {
 		if route != "/swagger/doc.json" {
 			routed = append(routed, method+" "+strings.TrimSuffix(route, "/"))
 		}
@@ -55,7 +56,7 @@ func TestSwaggerMatchesRoutes(t *testing.T) {
 
 func TestSwaggerServed(t *testing.T) {
 	rec := httptest.NewRecorder()
-	router(nil, nil, "test-secret").ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/swagger/doc.json", nil))
+	router(nil, nil, "test-secret", zap.NewNop()).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/swagger/doc.json", nil))
 	body, _ := io.ReadAll(rec.Body)
 	if rec.Code != http.StatusOK || rec.Header().Get("Content-Type") != "application/json" || string(body) != string(api.Swagger) {
 		t.Fatalf("код %d, тип %q", rec.Code, rec.Header().Get("Content-Type"))

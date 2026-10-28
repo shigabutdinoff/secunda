@@ -66,32 +66,32 @@ func (h *Handler) CreateTeam(w http.ResponseWriter, r *http.Request) {
 	}
 	tx, err := h.db.BeginTx(r.Context(), nil)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal error")
+		internalError(w, r, err)
 		return
 	}
 	defer func() { _ = tx.Rollback() }()
 	result, err := tx.ExecContext(r.Context(), "INSERT INTO teams (name, created_by) VALUES (?, ?)", input.Name, userID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal error")
+		internalError(w, r, err)
 		return
 	}
 	id, err := result.LastInsertId()
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal error")
+		internalError(w, r, err)
 		return
 	}
 	teamID := uint64(id)
 	if _, err = tx.ExecContext(r.Context(), "INSERT INTO team_members (team_id, user_id, role) VALUES (?, ?, 'owner')", teamID, userID); err != nil {
-		writeError(w, http.StatusInternalServerError, "internal error")
+		internalError(w, r, err)
 		return
 	}
 	response := teamResponse{ID: teamID, Name: input.Name, CreatedBy: userID}
 	if err = tx.QueryRowContext(r.Context(), "SELECT created_at FROM teams WHERE id = ?", teamID).Scan(&response.CreatedAt); err != nil {
-		writeError(w, http.StatusInternalServerError, "internal error")
+		internalError(w, r, err)
 		return
 	}
 	if err = tx.Commit(); err != nil {
-		writeError(w, http.StatusInternalServerError, "internal error")
+		internalError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, response)
@@ -114,7 +114,7 @@ func (h *Handler) ListTeams(w http.ResponseWriter, r *http.Request) {
 	rows, err := h.db.QueryContext(r.Context(), `SELECT t.id, t.name, t.created_by, t.created_at
 		FROM teams t JOIN team_members tm ON tm.team_id = t.id WHERE tm.user_id = ? ORDER BY t.id`, userID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal error")
+		internalError(w, r, err)
 		return
 	}
 	defer func() { _ = rows.Close() }()
@@ -122,13 +122,13 @@ func (h *Handler) ListTeams(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var team teamResponse
 		if err := rows.Scan(&team.ID, &team.Name, &team.CreatedBy, &team.CreatedAt); err != nil {
-			writeError(w, http.StatusInternalServerError, "internal error")
+			internalError(w, r, err)
 			return
 		}
 		teams = append(teams, team)
 	}
 	if err := rows.Err(); err != nil {
-		writeError(w, http.StatusInternalServerError, "internal error")
+		internalError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, teams)
@@ -175,7 +175,7 @@ func (h *Handler) InviteMember(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal error")
+		internalError(w, r, err)
 		return
 	}
 	if callerRole != "owner" && callerRole != "admin" {
@@ -189,7 +189,7 @@ func (h *Handler) InviteMember(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal error")
+		internalError(w, r, err)
 		return
 	}
 	if _, err = h.db.ExecContext(r.Context(), "INSERT INTO team_members (team_id, user_id, role) VALUES (?, ?, ?)", teamID, invitedID, input.Role); err != nil {
@@ -198,7 +198,7 @@ func (h *Handler) InviteMember(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusConflict, "user already in team")
 			return
 		}
-		writeError(w, http.StatusInternalServerError, "internal error")
+		internalError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, map[string]any{"team_id": teamID, "user_id": invitedID, "role": input.Role})
@@ -236,7 +236,7 @@ func (h *Handler) teamMemberTarget(w http.ResponseWriter, r *http.Request) (team
 		}
 	}
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal error")
+		internalError(w, r, err)
 		return 0, 0, "", "", false
 	}
 	return teamID, targetID, callerRole, targetRole, true
@@ -276,7 +276,7 @@ func (h *Handler) UpdateMemberRole(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if _, err := h.db.ExecContext(r.Context(), "UPDATE team_members SET role = ? WHERE team_id = ? AND user_id = ? AND role <> 'owner'", input.Role, teamID, targetID); err != nil {
-		writeError(w, http.StatusInternalServerError, "internal error")
+		internalError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"team_id": teamID, "user_id": targetID, "role": input.Role})
@@ -309,12 +309,12 @@ func (h *Handler) RemoveMember(w http.ResponseWriter, r *http.Request) {
 	result, err := h.db.ExecContext(r.Context(), `DELETE FROM team_members WHERE team_id = ? AND user_id = ? AND role <> 'owner'
 		AND NOT EXISTS (SELECT 1 FROM tasks WHERE team_id = ? AND assignee_id = ?)`, teamID, targetID, teamID, targetID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal error")
+		internalError(w, r, err)
 		return
 	}
 	if affected, err := result.RowsAffected(); err != nil || affected == 0 {
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, "internal error")
+			internalError(w, r, err)
 			return
 		}
 		writeError(w, http.StatusConflict, "member has assigned tasks")

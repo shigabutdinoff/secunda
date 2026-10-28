@@ -18,6 +18,8 @@ type Config struct {
 	JWTSecret      string `env:"JWT_SECRET"`
 	RedisAddr      string `env:"REDIS_ADDR"`
 	MigrationsPath string `env:"MIGRATIONS_PATH"`
+	// LogLevel — уровень журнала zap: debug, info, warn, error.
+	LogLevel string `env:"LOG_LEVEL"`
 }
 
 // Parse разбирает флаги args, затем переопределяет их непустыми переменными окружения.
@@ -29,6 +31,7 @@ func Parse(args []string) (Config, error) {
 	fs.StringVar(&cfg.JWTSecret, "j", "", "секрет JWT")
 	fs.StringVar(&cfg.RedisAddr, "r", "localhost:6379", "адрес Redis")
 	fs.StringVar(&cfg.MigrationsPath, "m", "migrations", "каталог миграций")
+	fs.StringVar(&cfg.LogLevel, "l", "info", "уровень журнала")
 	if err := fs.Parse(args); err != nil {
 		return Config{}, err
 	}

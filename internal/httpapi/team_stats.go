@@ -55,7 +55,7 @@ func (h *Handler) GetTeamStats(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal error")
+		internalError(w, r, err)
 		return
 	}
 	if role != "owner" && role != "admin" {
@@ -84,12 +84,12 @@ func (h *Handler) GetTeamStats(w http.ResponseWriter, r *http.Request) {
 		'comments', (SELECT COUNT(tc.id) FROM team_tasks tt JOIN task_comments tc ON tc.task_id = tt.id)
 	)`, teamID).Scan(&raw)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal error")
+		internalError(w, r, err)
 		return
 	}
 	var response teamStatsResponse
 	if err := json.Unmarshal(raw, &response); err != nil {
-		writeError(w, http.StatusInternalServerError, "internal error")
+		internalError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, response)

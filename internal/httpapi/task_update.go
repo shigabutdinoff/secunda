@@ -40,9 +40,9 @@ type updateTaskRequest struct {
 	AssigneeID  nullableUint64 `json:"assignee_id" swaggertype:"integer"`
 }
 
-func writeTaskInternalError(w http.ResponseWriter, err error) bool {
+func writeTaskInternalError(w http.ResponseWriter, r *http.Request, err error) bool {
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal error")
+		internalError(w, r, err)
 	}
 	return err != nil
 }
@@ -84,7 +84,7 @@ func (h *Handler) UpdateTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	tx, err := h.db.BeginTx(r.Context(), nil)
-	if writeTaskInternalError(w, err) {
+	if writeTaskInternalError(w, r, err) {
 		return
 	}
 	defer func() { _ = tx.Rollback() }()
@@ -96,7 +96,7 @@ func (h *Handler) UpdateTask(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "task not found")
 		return
 	}
-	if writeTaskInternalError(w, err) {
+	if writeTaskInternalError(w, r, err) {
 		return
 	}
 	patch := domain.Patch{Title: input.Title != nil, Description: input.Description != nil, Status: input.Status != nil, AssigneeID: input.AssigneeID.set}
@@ -140,7 +140,7 @@ func (h *Handler) UpdateTask(w http.ResponseWriter, r *http.Request) {
 				writeError(w, http.StatusBadRequest, "assignee must be a team member")
 				return
 			}
-			if writeTaskInternalError(w, err) {
+			if writeTaskInternalError(w, r, err) {
 				return
 			}
 		}
@@ -149,7 +149,7 @@ func (h *Handler) UpdateTask(w http.ResponseWriter, r *http.Request) {
 		args = append(args, input.AssigneeID.value)
 	}
 	if len(changes) == 0 {
-		if writeTaskInternalError(w, tx.Commit()) {
+		if writeTaskInternalError(w, r, tx.Commit()) {
 			return
 		}
 		writeJSON(w, http.StatusOK, task)
@@ -157,11 +157,11 @@ func (h *Handler) UpdateTask(w http.ResponseWriter, r *http.Request) {
 	}
 	args = append(args, id, *input.Version)
 	result, err := tx.ExecContext(r.Context(), "UPDATE tasks SET "+strings.Join(sets, ", ")+", version = version + 1, updated_at = NOW() WHERE id = ? AND version = ?", args...)
-	if writeTaskInternalError(w, err) {
+	if writeTaskInternalError(w, r, err) {
 		return
 	}
 	affected, err := result.RowsAffected()
-	if writeTaskInternalError(w, err) {
+	if writeTaskInternalError(w, r, err) {
 		return
 	}
 	if affected != 1 {
@@ -169,18 +169,18 @@ func (h *Handler) UpdateTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	history, err := json.Marshal(changes)
-	if writeTaskInternalError(w, err) {
+	if writeTaskInternalError(w, r, err) {
 		return
 	}
-	if _, err = tx.ExecContext(r.Context(), "INSERT INTO task_history (task_id, changed_by, changes) VALUES (?, ?, ?)", id, userID, history); writeTaskInternalError(w, err) {
+	if _, err = tx.ExecContext(r.Context(), "INSERT INTO task_history (task_id, changed_by, changes) VALUES (?, ?, ?)", id, userID, history); writeTaskInternalError(w, r, err) {
 		return
 	}
 	err = tx.QueryRowContext(r.Context(), "SELECT id, team_id, title, description, status, created_by, assignee_id, created_at, updated_at, closed_at, version FROM tasks WHERE id = ?", id).
 		Scan(&task.ID, &task.TeamID, &task.Title, &task.Description, &task.Status, &task.CreatedBy, &task.AssigneeID, &task.CreatedAt, &task.UpdatedAt, &task.ClosedAt, &task.Version)
-	if writeTaskInternalError(w, err) {
+	if writeTaskInternalError(w, r, err) {
 		return
 	}
-	if writeTaskInternalError(w, tx.Commit()) {
+	if writeTaskInternalError(w, r, tx.Commit()) {
 		return
 	}
 	h.invalidateTaskLists(r, task.TeamID)

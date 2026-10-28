@@ -6,11 +6,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
+
+	"go.uber.org/zap"
 
 	"github.com/redis/go-redis/v9"
 )
@@ -72,7 +73,7 @@ func (h *Handler) CreateTask(w http.ResponseWriter, r *http.Request) {
 	}
 	tx, err := h.db.BeginTx(r.Context(), nil)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal error")
+		internalError(w, r, err)
 		return
 	}
 	defer func() { _ = tx.Rollback() }()
@@ -83,7 +84,7 @@ func (h *Handler) CreateTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal error")
+		internalError(w, r, err)
 		return
 	}
 	if input.AssigneeID != nil {
@@ -93,18 +94,18 @@ func (h *Handler) CreateTask(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, "internal error")
+			internalError(w, r, err)
 			return
 		}
 	}
 	result, err := tx.ExecContext(r.Context(), "INSERT INTO tasks (team_id, title, description, created_by, assignee_id) VALUES (?, ?, ?, ?, ?)", input.TeamID, input.Title, input.Description, userID, input.AssigneeID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal error")
+		internalError(w, r, err)
 		return
 	}
 	id, err := result.LastInsertId()
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal error")
+		internalError(w, r, err)
 		return
 	}
 	response := taskResponse{ID: uint64(id), TeamID: input.TeamID, Title: input.Title, Description: input.Description, Status: "todo", CreatedBy: userID, AssigneeID: input.AssigneeID, Version: 1}
@@ -115,19 +116,19 @@ func (h *Handler) CreateTask(w http.ResponseWriter, r *http.Request) {
 		"assignee_id": input.AssigneeID,
 	}})
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal error")
+		internalError(w, r, err)
 		return
 	}
 	if err = tx.QueryRowContext(r.Context(), "SELECT created_at, updated_at FROM tasks WHERE id = ?", response.ID).Scan(&response.CreatedAt, &response.UpdatedAt); err != nil {
-		writeError(w, http.StatusInternalServerError, "internal error")
+		internalError(w, r, err)
 		return
 	}
 	if _, err = tx.ExecContext(r.Context(), "INSERT INTO task_history (task_id, changed_by, changes, created_at) VALUES (?, ?, ?, ?)", response.ID, userID, changes, response.CreatedAt); err != nil {
-		writeError(w, http.StatusInternalServerError, "internal error")
+		internalError(w, r, err)
 		return
 	}
 	if err = tx.Commit(); err != nil {
-		writeError(w, http.StatusInternalServerError, "internal error")
+		internalError(w, r, err)
 		return
 	}
 	h.invalidateTaskLists(r, input.TeamID)
@@ -167,7 +168,7 @@ func (h *Handler) ListTasks(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal error")
+		internalError(w, r, err)
 		return
 	}
 	generation := h.taskCacheGeneration(r.Context(), filter.teamID)
@@ -175,12 +176,12 @@ func (h *Handler) ListTasks(w http.ResponseWriter, r *http.Request) {
 	if h.cache != nil {
 		cached, err := h.cache.Get(r.Context(), cacheKey).Bytes()
 		if err != nil && !errors.Is(err, redis.Nil) {
-			log.Printf("read task list cache: %v", err)
+			loggerFrom(r.Context()).Warn("read task list cache", zap.Error(err))
 		}
 		if err == nil {
 			var tasks []taskResponse
 			if err := json.Unmarshal(cached, &tasks); err != nil {
-				log.Printf("decode task list cache: %v", err)
+				loggerFrom(r.Context()).Warn("decode task list cache", zap.Error(err))
 			} else {
 				writeJSON(w, http.StatusOK, tasks)
 				return
@@ -202,7 +203,7 @@ func (h *Handler) ListTasks(w http.ResponseWriter, r *http.Request) {
 	args = append(args, filter.limit, filter.offset)
 	rows, err := h.db.QueryContext(r.Context(), query.String(), args...)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal error")
+		internalError(w, r, err)
 		return
 	}
 	defer func() { _ = rows.Close() }()
@@ -210,13 +211,13 @@ func (h *Handler) ListTasks(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var task taskResponse
 		if err := rows.Scan(&task.ID, &task.TeamID, &task.Title, &task.Description, &task.Status, &task.CreatedBy, &task.AssigneeID, &task.CreatedAt, &task.UpdatedAt, &task.ClosedAt, &task.Version); err != nil {
-			writeError(w, http.StatusInternalServerError, "internal error")
+			internalError(w, r, err)
 			return
 		}
 		tasks = append(tasks, task)
 	}
 	if err := rows.Err(); err != nil {
-		writeError(w, http.StatusInternalServerError, "internal error")
+		internalError(w, r, err)
 		return
 	}
 	h.storeTaskList(r, filter.teamID, generation, cacheKey, tasks)
@@ -233,7 +234,7 @@ func (h *Handler) taskCacheGeneration(ctx context.Context, teamID uint64) uint64
 	}
 	generation, err := h.cache.Get(ctx, fmt.Sprintf("tasks:gen:%d", teamID)).Uint64()
 	if err != nil && !errors.Is(err, redis.Nil) {
-		log.Printf("read task cache generation: %v", err)
+		loggerFrom(ctx).Warn("read task cache generation", zap.Error(err))
 	}
 	return generation
 }
@@ -247,7 +248,7 @@ func (h *Handler) storeTaskList(r *http.Request, teamID, generation uint64, cach
 		return
 	}
 	if err := h.cache.Set(r.Context(), cacheKey, cached, 5*time.Minute).Err(); err != nil {
-		log.Printf("store task list cache: %v", err)
+		loggerFrom(r.Context()).Warn("store task list cache", zap.Error(err))
 	}
 }
 
@@ -258,7 +259,7 @@ func (h *Handler) invalidateTaskLists(r *http.Request, teamID uint64) {
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), 2*time.Second)
 	defer cancel()
 	if err := h.cache.Incr(ctx, fmt.Sprintf("tasks:gen:%d", teamID)).Err(); err != nil {
-		log.Printf("invalidate task list cache: %v", err)
+		loggerFrom(ctx).Warn("invalidate task list cache", zap.Error(err))
 	}
 }
 

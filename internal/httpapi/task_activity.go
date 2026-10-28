@@ -51,7 +51,7 @@ func (h *Handler) accessibleTask(w http.ResponseWriter, r *http.Request) (uint64
 		writeError(w, http.StatusNotFound, "task not found")
 		return 0, false
 	}
-	if writeTaskInternalError(w, err) {
+	if writeTaskInternalError(w, r, err) {
 		return 0, false
 	}
 	return id, true
@@ -75,19 +75,19 @@ func (h *Handler) ListTaskHistory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rows, err := h.db.QueryContext(r.Context(), "SELECT id, task_id, changed_by, changes, created_at FROM task_history WHERE task_id = ? ORDER BY created_at, id", id)
-	if writeTaskInternalError(w, err) {
+	if writeTaskInternalError(w, r, err) {
 		return
 	}
 	defer func() { _ = rows.Close() }()
 	history := make([]taskHistoryResponse, 0)
 	for rows.Next() {
 		var entry taskHistoryResponse
-		if err := rows.Scan(&entry.ID, &entry.TaskID, &entry.ChangedBy, &entry.Changes, &entry.CreatedAt); writeTaskInternalError(w, err) {
+		if err := rows.Scan(&entry.ID, &entry.TaskID, &entry.ChangedBy, &entry.Changes, &entry.CreatedAt); writeTaskInternalError(w, r, err) {
 			return
 		}
 		history = append(history, entry)
 	}
-	if writeTaskInternalError(w, rows.Err()) {
+	if writeTaskInternalError(w, r, rows.Err()) {
 		return
 	}
 	writeJSON(w, http.StatusOK, history)
@@ -121,16 +121,16 @@ func (h *Handler) CreateTaskComment(w http.ResponseWriter, r *http.Request) {
 	}
 	userID, _ := UserID(r.Context())
 	result, err := h.db.ExecContext(r.Context(), "INSERT INTO task_comments (task_id, user_id, content) VALUES (?, ?, ?)", id, userID, input.Content)
-	if writeTaskInternalError(w, err) {
+	if writeTaskInternalError(w, r, err) {
 		return
 	}
 	commentID, err := result.LastInsertId()
-	if writeTaskInternalError(w, err) {
+	if writeTaskInternalError(w, r, err) {
 		return
 	}
 	comment := taskCommentResponse{ID: uint64(commentID), TaskID: id, UserID: userID, Content: input.Content}
 	err = h.db.QueryRowContext(r.Context(), "SELECT created_at FROM task_comments WHERE id = ?", comment.ID).Scan(&comment.CreatedAt)
-	if writeTaskInternalError(w, err) {
+	if writeTaskInternalError(w, r, err) {
 		return
 	}
 	writeJSON(w, http.StatusCreated, comment)
@@ -153,19 +153,19 @@ func (h *Handler) ListTaskComments(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rows, err := h.db.QueryContext(r.Context(), "SELECT id, task_id, user_id, content, created_at FROM task_comments WHERE task_id = ? ORDER BY created_at, id", id)
-	if writeTaskInternalError(w, err) {
+	if writeTaskInternalError(w, r, err) {
 		return
 	}
 	defer func() { _ = rows.Close() }()
 	comments := make([]taskCommentResponse, 0)
 	for rows.Next() {
 		var comment taskCommentResponse
-		if err := rows.Scan(&comment.ID, &comment.TaskID, &comment.UserID, &comment.Content, &comment.CreatedAt); writeTaskInternalError(w, err) {
+		if err := rows.Scan(&comment.ID, &comment.TaskID, &comment.UserID, &comment.Content, &comment.CreatedAt); writeTaskInternalError(w, r, err) {
 			return
 		}
 		comments = append(comments, comment)
 	}
-	if writeTaskInternalError(w, rows.Err()) {
+	if writeTaskInternalError(w, r, rows.Err()) {
 		return
 	}
 	writeJSON(w, http.StatusOK, comments)

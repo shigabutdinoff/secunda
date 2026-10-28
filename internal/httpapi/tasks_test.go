@@ -1,10 +1,8 @@
 package httpapi
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
-	"log"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -13,6 +11,8 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/redis/go-redis/v9"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zaptest/observer"
 )
 
 func TestCreateTaskValidation(t *testing.T) {
@@ -111,18 +111,16 @@ func TestTaskListCacheKey(t *testing.T) {
 func TestTaskCacheLogsRedisErrors(t *testing.T) {
 	cache := redis.NewClient(&redis.Options{Addr: "127.0.0.1:1", DialTimeout: 10 * time.Millisecond, MaxRetries: -1})
 	defer func() { _ = cache.Close() }()
-	var logs bytes.Buffer
-	previous := log.Writer()
-	log.SetOutput(&logs)
-	t.Cleanup(func() { log.SetOutput(previous) })
+	core, logs := observer.New(zap.WarnLevel)
 	h := NewHandler(nil, cache, testSecret)
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/tasks", nil)
+	req = req.WithContext(context.WithValue(req.Context(), requestLogKey{}, &requestLog{logger: zap.New(core)}))
 	h.taskCacheGeneration(req.Context(), 7)
 	h.storeTaskList(req, 7, 0, "tasks:7:v0::0:20:0", nil)
 	h.invalidateTaskLists(req, 7)
 	for _, operation := range []string{"read task cache generation", "store task list cache", "invalidate task list cache"} {
-		if !strings.Contains(logs.String(), operation) {
-			t.Errorf("logs %q do not contain %q", logs.String(), operation)
+		if logs.FilterMessage(operation).Len() == 0 {
+			t.Errorf("no warning %q in %v", operation, logs.All())
 		}
 	}
 }

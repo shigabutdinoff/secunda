@@ -22,6 +22,8 @@ import (
 	_ "github.com/golang-migrate/migrate/v4/database/mysql"
 	_ "github.com/golang-migrate/migrate/v4/source/file"
 	"github.com/redis/go-redis/v9"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 
 	"github.com/shigabutdinoff/secunda/api"
 	"github.com/shigabutdinoff/secunda/internal/config"
@@ -43,6 +45,17 @@ func run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	level, err := zapcore.ParseLevel(cfg.LogLevel)
+	if err != nil {
+		return fmt.Errorf("parse LOG_LEVEL: %w", err)
+	}
+	logCfg := zap.NewProductionConfig()
+	logCfg.Level = zap.NewAtomicLevelAt(level)
+	logger, err := logCfg.Build()
+	if err != nil {
+		return fmt.Errorf("build logger: %w", err)
+	}
+	defer func() { _ = logger.Sync() }()
 
 	db, err := sql.Open("mysql", cfg.DatabaseDSN)
 	if err != nil {
@@ -69,8 +82,8 @@ func run(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("listen %s: %w", cfg.Address, err)
 	}
-	srv := &http.Server{Handler: router(db, rdb, cfg.JWTSecret), ReadHeaderTimeout: 10 * time.Second}
-	log.Printf("Сервер слушает %s", cfg.Address)
+	srv := &http.Server{Handler: router(db, rdb, cfg.JWTSecret, logger), ReadHeaderTimeout: 10 * time.Second}
+	logger.Info("Сервер слушает", zap.String("address", cfg.Address))
 	return serve(ctx, srv, l, grace)
 }
 
@@ -87,8 +100,9 @@ func migrateUp(path, dsn string) error {
 	return nil
 }
 
-func router(db *sql.DB, rdb *redis.Client, jwtSecret string) chi.Router {
+func router(db *sql.DB, rdb *redis.Client, jwtSecret string, logger *zap.Logger) chi.Router {
 	r := chi.NewRouter()
+	r.Use(httpapi.WithLogging(logger))
 	r.Use(middleware.Recoverer)
 	handler := httpapi.NewHandler(db, rdb, jwtSecret)
 	r.Post("/api/v1/register", handler.Register)
@@ -125,7 +139,7 @@ func router(db *sql.DB, rdb *redis.Client, jwtSecret string) chi.Router {
 		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 		defer cancel()
 		if err := errors.Join(db.PingContext(ctx), rdb.Ping(ctx).Err()); err != nil {
-			log.Print("health: ", err)
+			logger.Error("health", zap.Error(err))
 			http.Error(w, "unavailable", http.StatusServiceUnavailable)
 			return
 		}
