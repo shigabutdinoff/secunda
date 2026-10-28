@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"reflect"
+	"sync"
 	"testing"
 	"time"
 
@@ -36,6 +38,7 @@ func newTaskTestFixture(t *testing.T, cache *redis.Client) taskTestFixture {
 		r.Use(h.Authenticate)
 		r.Post("/", h.CreateTask)
 		r.Get("/", h.ListTasks)
+		r.Put("/{id}", h.UpdateTask)
 	})
 	owner := createTeamTestUser(t, db, "task-owner")
 	admin := createTeamTestUser(t, db, "task-admin")
@@ -263,5 +266,231 @@ func TestTasksWithUnavailableRedisIntegration(t *testing.T) {
 	createTaskForTest(t, f, "No Redis", f.memberID)
 	if rec := listTasksForTest(t, f, f.memberID, ""); rec.Code != http.StatusOK {
 		t.Fatalf("list without Redis = (%d, %s)", rec.Code, rec.Body)
+	}
+}
+
+func updateTaskForTest(t *testing.T, f taskTestFixture, userID, taskID uint64, body string) *httptest.ResponseRecorder {
+	t.Helper()
+	return f.request(t, userID, http.MethodPut, fmt.Sprintf("/api/v1/tasks/%d", taskID), body)
+}
+
+func TestUpdateTaskIntegration(t *testing.T) {
+	f := newTaskTestFixture(t, nil)
+	task := createTaskForTest(t, f, "Before", f.memberID)
+	body := fmt.Sprintf(`{"version":1,"title":"After","description":"Updated","status":"in_progress","assignee_id":%d}`, f.adminID)
+	rec := updateTaskForTest(t, f, f.ownerID, task.ID, body)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("update = (%d, %s); want 200", rec.Code, rec.Body)
+	}
+	var updated taskResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &updated); err != nil {
+		t.Fatal(err)
+	}
+	if updated.Title != "After" || updated.Description != "Updated" || updated.Status != "in_progress" || updated.AssigneeID == nil || *updated.AssigneeID != f.adminID || updated.Version != 2 || updated.ClosedAt != nil {
+		t.Fatalf("updated task = %s", rec.Body)
+	}
+	var changedBy uint64
+	var changes string
+	if err := f.db.QueryRowContext(t.Context(), "SELECT changed_by, changes FROM task_history WHERE task_id = ? ORDER BY id DESC LIMIT 1", task.ID).Scan(&changedBy, &changes); err != nil {
+		t.Fatal(err)
+	}
+	want := fmt.Sprintf(`{"assignee_id":{"old":%d,"new":%d},"description":{"old":"","new":"Updated"},"status":{"old":"todo","new":"in_progress"},"title":{"old":"Before","new":"After"}}`, f.memberID, f.adminID)
+	var gotJSON, wantJSON any
+	if err := json.Unmarshal([]byte(changes), &gotJSON); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal([]byte(want), &wantJSON); err != nil {
+		t.Fatal(err)
+	}
+	if changedBy != f.ownerID || !reflect.DeepEqual(gotJSON, wantJSON) {
+		t.Fatalf("history = (%d, %s); want (%d, %s)", changedBy, changes, f.ownerID, want)
+	}
+}
+
+func TestUpdateTaskAccessIntegration(t *testing.T) {
+	f := newTaskTestFixture(t, nil)
+	for _, tc := range []struct {
+		name     string
+		caller   uint64
+		creator  bool
+		assignee bool
+		body     string
+		want     int
+	}{
+		{name: "admin", caller: f.adminID, body: `{"version":1,"description":"Admin"}`, want: http.StatusOK},
+		{name: "member creator", caller: f.memberID, creator: true, body: `{"version":1,"title":"Creator"}`, want: http.StatusOK},
+		{name: "member assignee status", caller: f.memberID, assignee: true, body: `{"version":1,"status":"done"}`, want: http.StatusOK},
+		{name: "member assignee title", caller: f.memberID, assignee: true, body: `{"version":1,"title":"Assignee"}`, want: http.StatusForbidden},
+		{name: "member other", caller: f.memberID, body: `{"version":1,"description":"Forbidden"}`, want: http.StatusForbidden},
+		{name: "member creator status", caller: f.memberID, creator: true, body: `{"version":1,"status":"done"}`, want: http.StatusOK},
+		{name: "outsider", caller: f.otherID, body: `{"version":1,"title":"Missing"}`, want: http.StatusNotFound},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			task := createTaskForTest(t, f, tc.name, f.adminID)
+			if tc.creator {
+				if _, err := f.db.ExecContext(t.Context(), "UPDATE tasks SET created_by = ? WHERE id = ?", f.memberID, task.ID); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if tc.assignee {
+				if _, err := f.db.ExecContext(t.Context(), "UPDATE tasks SET assignee_id = ? WHERE id = ?", f.memberID, task.ID); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if rec := updateTaskForTest(t, f, tc.caller, task.ID, tc.body); rec.Code != tc.want {
+				t.Fatalf("update = (%d, %s); want %d", rec.Code, rec.Body, tc.want)
+			}
+		})
+	}
+}
+
+func TestUpdateTaskValidationAndConflictIntegration(t *testing.T) {
+	f := newTaskTestFixture(t, nil)
+	outside := createTaskForTest(t, f, "Outside assignee", f.memberID)
+	body := fmt.Sprintf(`{"version":1,"assignee_id":%d}`, f.otherID)
+	if rec := updateTaskForTest(t, f, f.ownerID, outside.ID, body); rec.Code != http.StatusBadRequest {
+		t.Fatalf("outside assignee = (%d, %s); want 400", rec.Code, rec.Body)
+	}
+	stale := createTaskForTest(t, f, "Stable", f.memberID)
+	if rec := updateTaskForTest(t, f, f.ownerID, stale.ID, `{"version":0,"title":"Changed"}`); rec.Code != http.StatusBadRequest {
+		t.Fatalf("invalid version = (%d, %s); want 400", rec.Code, rec.Body)
+	}
+	if rec := updateTaskForTest(t, f, f.ownerID, stale.ID, `{"version":2,"title":"Changed"}`); rec.Code != http.StatusConflict {
+		t.Fatalf("stale update = (%d, %s); want 409", rec.Code, rec.Body)
+	}
+	var title string
+	var version, history int
+	if err := f.db.QueryRowContext(t.Context(), "SELECT title, version, (SELECT COUNT(*) FROM task_history WHERE task_id = ?) FROM tasks WHERE id = ?", stale.ID, stale.ID).Scan(&title, &version, &history); err != nil {
+		t.Fatal(err)
+	}
+	if title != "Stable" || version != 1 || history != 1 {
+		t.Fatalf("after stale update = (%q, %d, %d); want (Stable, 1, 1)", title, version, history)
+	}
+}
+
+func TestUpdateTaskSameValueIntegration(t *testing.T) {
+	f := newTaskTestFixture(t, nil)
+	task := createTaskForTest(t, f, "Same", f.memberID)
+	rec := updateTaskForTest(t, f, f.ownerID, task.ID, fmt.Sprintf(`{"version":1,"title":"Same","description":"","status":"todo","assignee_id":%d}`, f.memberID))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("same-value update = (%d, %s); want 200", rec.Code, rec.Body)
+	}
+	var updated taskResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &updated); err != nil || updated.Version != 1 {
+		t.Fatalf("same-value response = %s, error = %v", rec.Body, err)
+	}
+	var history int
+	if err := f.db.QueryRowContext(t.Context(), "SELECT COUNT(*) FROM task_history WHERE task_id = ?", task.ID).Scan(&history); err != nil || history != 1 {
+		t.Fatalf("same-value history = %d, error = %v; want 1", history, err)
+	}
+}
+
+func TestUpdateTaskClosedAtIntegration(t *testing.T) {
+	f := newTaskTestFixture(t, nil)
+	task := createTaskForTest(t, f, "Close", f.memberID)
+	closed := updateTaskForTest(t, f, f.ownerID, task.ID, `{"version":1,"status":"done"}`)
+	var done taskResponse
+	if err := json.Unmarshal(closed.Body.Bytes(), &done); err != nil || closed.Code != http.StatusOK || done.ClosedAt == nil {
+		t.Fatalf("close = (%d, %s), error = %v", closed.Code, closed.Body, err)
+	}
+	preserved := updateTaskForTest(t, f, f.ownerID, task.ID, `{"version":2,"title":"Still done"}`)
+	var stillDone taskResponse
+	if err := json.Unmarshal(preserved.Body.Bytes(), &stillDone); err != nil || preserved.Code != http.StatusOK || stillDone.ClosedAt == nil || !stillDone.ClosedAt.Equal(*done.ClosedAt) {
+		t.Fatalf("preserved close = (%d, %s), error = %v; original %v", preserved.Code, preserved.Body, err, done.ClosedAt)
+	}
+	reopened := updateTaskForTest(t, f, f.ownerID, task.ID, `{"version":3,"status":"todo"}`)
+	var todo taskResponse
+	if err := json.Unmarshal(reopened.Body.Bytes(), &todo); err != nil || reopened.Code != http.StatusOK || todo.ClosedAt != nil {
+		t.Fatalf("reopen = (%d, %s), error = %v", reopened.Code, reopened.Body, err)
+	}
+}
+
+func TestUpdateTaskRollbackIntegration(t *testing.T) {
+	f := newTaskTestFixture(t, nil)
+	task := createTaskForTest(t, f, "Before rollback", f.memberID)
+	trigger := fmt.Sprintf("reject_task_update_history_%d", time.Now().UnixNano())
+	if _, err := f.db.ExecContext(t.Context(), fmt.Sprintf("CREATE TRIGGER %s BEFORE INSERT ON task_history FOR EACH ROW SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'forced failure'", trigger)); err != nil {
+		if mysqlErr, ok := err.(*mysql.MySQLError); ok && mysqlErr.Number == 1419 {
+			t.Skip("создание trigger запрещено настройками MySQL")
+		}
+		t.Fatal(err)
+	}
+	defer func() { _, _ = f.db.ExecContext(t.Context(), "DROP TRIGGER "+trigger) }()
+	if rec := updateTaskForTest(t, f, f.ownerID, task.ID, `{"version":1,"title":"After rollback"}`); rec.Code != http.StatusInternalServerError {
+		t.Fatalf("update = (%d, %s); want 500", rec.Code, rec.Body)
+	}
+	var title string
+	var version, history int
+	if err := f.db.QueryRowContext(t.Context(), "SELECT title, version, (SELECT COUNT(*) FROM task_history WHERE task_id = ?) FROM tasks WHERE id = ?", task.ID, task.ID).Scan(&title, &version, &history); err != nil {
+		t.Fatal(err)
+	}
+	if title != "Before rollback" || version != 1 || history != 1 {
+		t.Fatalf("after rollback = (%q, %d, %d); want (Before rollback, 1, 1)", title, version, history)
+	}
+}
+
+func TestUpdateTaskCacheIntegration(t *testing.T) {
+	addr := os.Getenv("TEST_REDIS_ADDR")
+	if addr == "" {
+		t.Skip("TEST_REDIS_ADDR не задан")
+	}
+	cache := redis.NewClient(&redis.Options{Addr: addr, DB: 15})
+	defer func() { _ = cache.Close() }()
+	f := newTaskTestFixture(t, cache)
+	t.Cleanup(func() {
+		keys, _ := cache.Keys(t.Context(), "tasks:*:"+fmt.Sprint(f.teamID)+"*").Result()
+		if len(keys) > 0 {
+			_ = cache.Del(t.Context(), keys...).Err()
+		}
+	})
+	task := createTaskForTest(t, f, "Cached before", f.memberID)
+	if rec := listTasksForTest(t, f, f.memberID, ""); rec.Code != http.StatusOK {
+		t.Fatal(rec.Body.String())
+	}
+	if rec := updateTaskForTest(t, f, f.ownerID, task.ID, `{"version":1,"title":"Cached after"}`); rec.Code != http.StatusOK {
+		t.Fatalf("update = (%d, %s)", rec.Code, rec.Body)
+	}
+	rec := listTasksForTest(t, f, f.memberID, "")
+	var tasks []taskResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &tasks); err != nil || len(tasks) != 1 || tasks[0].Title != "Cached after" || tasks[0].Version != 2 {
+		t.Fatalf("refreshed list = %s, error = %v", rec.Body, err)
+	}
+}
+
+func TestUpdateTaskConcurrentIntegration(t *testing.T) {
+	f := newTaskTestFixture(t, nil)
+	task := createTaskForTest(t, f, "Concurrent", f.memberID)
+	start := make(chan struct{})
+	responses := make([]*httptest.ResponseRecorder, 2)
+	var wg sync.WaitGroup
+	for i, title := range []string{"First winner", "Second winner"} {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			responses[i] = updateTaskForTest(t, f, f.ownerID, task.ID, fmt.Sprintf(`{"version":1,"title":%q}`, title))
+		}()
+	}
+	close(start)
+	wg.Wait()
+	codes := []int{responses[0].Code, responses[1].Code}
+	if !((codes[0] == http.StatusOK && codes[1] == http.StatusConflict) || (codes[0] == http.StatusConflict && codes[1] == http.StatusOK)) {
+		t.Fatalf("concurrent statuses = %v, bodies = (%s, %s); want one 200 and one 409", codes, responses[0].Body, responses[1].Body)
+	}
+	winner := 0
+	if responses[1].Code == http.StatusOK {
+		winner = 1
+	}
+	wantTitle := "First winner"
+	if winner == 1 {
+		wantTitle = "Second winner"
+	}
+	var title string
+	var version, history int
+	if err := f.db.QueryRowContext(t.Context(), "SELECT title, version, (SELECT COUNT(*) FROM task_history WHERE task_id = ?) FROM tasks WHERE id = ?", task.ID, task.ID).Scan(&title, &version, &history); err != nil {
+		t.Fatal(err)
+	}
+	if title != wantTitle || version != 2 || history != 2 {
+		t.Fatalf("after concurrent updates = (%q, %d, %d); want (%q, 2, 2)", title, version, history, wantTitle)
 	}
 }

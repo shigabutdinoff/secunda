@@ -96,6 +96,7 @@ func router(db *sql.DB, rdb *redis.Client, jwtSecret string) chi.Router {
 		r.Use(handler.Authenticate)
 		r.Post("/", handler.CreateTask)
 		r.Get("/", handler.ListTasks)
+		r.Put("/{id}", handler.UpdateTask)
 	})
 	r.Route("/api/v1/teams", func(r chi.Router) {
 		r.Use(handler.Authenticate)
