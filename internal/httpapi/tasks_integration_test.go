@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"reflect"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -39,6 +40,9 @@ func newTaskTestFixture(t *testing.T, cache *redis.Client) taskTestFixture {
 		r.Post("/", h.CreateTask)
 		r.Get("/", h.ListTasks)
 		r.Put("/{id}", h.UpdateTask)
+		r.Get("/{id}/history", h.ListTaskHistory)
+		r.Post("/{id}/comments", h.CreateTaskComment)
+		r.Get("/{id}/comments", h.ListTaskComments)
 	})
 	owner := createTeamTestUser(t, db, "task-owner")
 	admin := createTeamTestUser(t, db, "task-admin")
@@ -62,6 +66,7 @@ func newTaskTestFixture(t *testing.T, cache *redis.Client) taskTestFixture {
 		}
 	}
 	t.Cleanup(func() {
+		_, _ = db.ExecContext(t.Context(), "DELETE tc FROM task_comments tc JOIN tasks t ON t.id = tc.task_id WHERE t.team_id = ?", teamID)
 		_, _ = db.ExecContext(t.Context(), "DELETE th FROM task_history th JOIN tasks t ON t.id = th.task_id WHERE t.team_id = ?", teamID)
 		_, _ = db.ExecContext(t.Context(), "DELETE FROM tasks WHERE team_id = ?", teamID)
 		_, _ = db.ExecContext(t.Context(), "DELETE FROM team_members WHERE team_id = ?", teamID)
@@ -474,7 +479,7 @@ func TestUpdateTaskConcurrentIntegration(t *testing.T) {
 	close(start)
 	wg.Wait()
 	codes := []int{responses[0].Code, responses[1].Code}
-	if !((codes[0] == http.StatusOK && codes[1] == http.StatusConflict) || (codes[0] == http.StatusConflict && codes[1] == http.StatusOK)) {
+	if (codes[0] != http.StatusOK || codes[1] != http.StatusConflict) && (codes[0] != http.StatusConflict || codes[1] != http.StatusOK) {
 		t.Fatalf("concurrent statuses = %v, bodies = (%s, %s); want one 200 and one 409", codes, responses[0].Body, responses[1].Body)
 	}
 	winner := 0
@@ -492,5 +497,119 @@ func TestUpdateTaskConcurrentIntegration(t *testing.T) {
 	}
 	if title != wantTitle || version != 2 || history != 2 {
 		t.Fatalf("after concurrent updates = (%q, %d, %d); want (%q, 2, 2)", title, version, history, wantTitle)
+	}
+}
+
+type taskHistoryTestResponse struct {
+	ID        uint64                     `json:"id"`
+	TaskID    uint64                     `json:"task_id"`
+	ChangedBy uint64                     `json:"changed_by"`
+	Changes   map[string]json.RawMessage `json:"changes"`
+	CreatedAt string                     `json:"created_at"`
+}
+
+type taskCommentTestResponse struct {
+	ID        uint64 `json:"id"`
+	TaskID    uint64 `json:"task_id"`
+	UserID    uint64 `json:"user_id"`
+	Content   string `json:"content"`
+	CreatedAt string `json:"created_at"`
+}
+
+func TestTaskActivityIntegration(t *testing.T) {
+	f := newTaskTestFixture(t, nil)
+	task := createTaskForTest(t, f, "Activity", f.memberID)
+	path := fmt.Sprintf("/api/v1/tasks/%d", task.ID)
+	if rec := f.request(t, f.memberID, http.MethodGet, path+"/comments", ""); rec.Code != http.StatusOK || rec.Body.String() != "[]\n" {
+		t.Fatalf("empty comments = (%d, %q)", rec.Code, rec.Body)
+	}
+	if rec := updateTaskForTest(t, f, f.ownerID, task.ID, `{"version":1,"title":"Updated"}`); rec.Code != http.StatusOK {
+		t.Fatal(rec.Body.String())
+	}
+	if _, err := f.db.ExecContext(t.Context(), "UPDATE task_history SET created_at = '2026-01-01 00:00:00' WHERE task_id = ?", task.ID); err != nil {
+		t.Fatal(err)
+	}
+	for _, reader := range []uint64{f.ownerID, f.adminID, f.memberID} {
+		rec := f.request(t, reader, http.MethodGet, path+"/history", "")
+		var history []taskHistoryTestResponse
+		if err := json.Unmarshal(rec.Body.Bytes(), &history); err != nil || rec.Code != http.StatusOK || len(history) != 2 {
+			t.Fatalf("history = (%d, %s), error = %v", rec.Code, rec.Body, err)
+		}
+		for i, entry := range history {
+			if entry.TaskID != task.ID || entry.ID == 0 || i > 0 && entry.ID <= history[i-1].ID {
+				t.Fatalf("history order/identity = %+v", history)
+			}
+			if _, err := time.Parse(time.RFC3339, entry.CreatedAt); err != nil {
+				t.Fatalf("history time %q: %v", entry.CreatedAt, err)
+			}
+		}
+		if history[0].ChangedBy != f.ownerID || history[1].ChangedBy != f.ownerID {
+			t.Fatalf("history authors = %+v", history)
+		}
+		var titleChange struct{ Old, New string }
+		if err := json.Unmarshal(history[1].Changes["title"], &titleChange); err != nil || titleChange.Old != "Activity" || titleChange.New != "Updated" {
+			t.Fatalf("title change = (%s, %+v), error = %v", history[1].Changes["title"], titleChange, err)
+		}
+	}
+	contents := []string{"Owner comment", "Admin comment", strings.Repeat("я", 5000)}
+	for i, author := range []uint64{f.ownerID, f.adminID, f.memberID} {
+		body, err := json.Marshal(map[string]string{"content": contents[i]})
+		if err != nil {
+			t.Fatal(err)
+		}
+		rec := f.request(t, author, http.MethodPost, path+"/comments", string(body))
+		var comment taskCommentTestResponse
+		if err := json.Unmarshal(rec.Body.Bytes(), &comment); err != nil || rec.Code != http.StatusCreated || comment.ID == 0 || comment.TaskID != task.ID || comment.UserID != author || comment.Content != contents[i] {
+			t.Fatalf("create comment = (%d, %s), error = %v", rec.Code, rec.Body, err)
+		}
+		if _, err := time.Parse(time.RFC3339, comment.CreatedAt); err != nil {
+			t.Fatalf("comment time %q: %v", comment.CreatedAt, err)
+		}
+	}
+	if _, err := f.db.ExecContext(t.Context(), "UPDATE task_comments SET created_at = '2026-01-01 00:00:00' WHERE task_id = ?", task.ID); err != nil {
+		t.Fatal(err)
+	}
+	rec := f.request(t, f.memberID, http.MethodGet, path+"/comments", "")
+	var comments []taskCommentTestResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &comments); err != nil || rec.Code != http.StatusOK || len(comments) != 3 {
+		t.Fatalf("comments = (%d, %s), error = %v", rec.Code, rec.Body, err)
+	}
+	for i, comment := range comments {
+		if comment.Content != contents[i] || i > 0 && comment.ID <= comments[i-1].ID {
+			t.Fatalf("comment order/content = %+v", comments)
+		}
+	}
+}
+
+func TestTaskActivityAccessIntegration(t *testing.T) {
+	f := newTaskTestFixture(t, nil)
+	task := createTaskForTest(t, f, "Private activity", f.memberID)
+	for _, id := range []uint64{task.ID, task.ID + 1000000} {
+		for _, tc := range []struct{ method, suffix, body string }{
+			{http.MethodGet, "/history", ""},
+			{http.MethodGet, "/comments", ""},
+			{http.MethodPost, "/comments", `{"content":"secret"}`},
+			{http.MethodPost, "/comments", `{"content":`},
+			{http.MethodPost, "/comments", `{"content":""}`},
+		} {
+			path := fmt.Sprintf("/api/v1/tasks/%d%s", id, tc.suffix)
+			if rec := f.request(t, f.otherID, tc.method, path, tc.body); rec.Code != http.StatusNotFound {
+				t.Fatalf("outsider %s %s = (%d, %s); want 404", tc.method, path, rec.Code, rec.Body)
+			}
+		}
+	}
+}
+
+func TestCreateTaskCommentBodyValidationIntegration(t *testing.T) {
+	f := newTaskTestFixture(t, nil)
+	task := createTaskForTest(t, f, "Comment validation", f.memberID)
+	path := fmt.Sprintf("/api/v1/tasks/%d/comments", task.ID)
+	for _, body := range []string{
+		`{"content":`, `{"content":"text"} {}`, `{}`, `{"content":""}`,
+		`{"content":"  "}`, `{"content":"` + strings.Repeat("я", 5001) + `"}`,
+	} {
+		if rec := f.request(t, f.memberID, http.MethodPost, path, body); rec.Code != http.StatusBadRequest {
+			t.Fatalf("body %q = (%d, %s); want 400", body, rec.Code, rec.Body)
+		}
 	}
 }

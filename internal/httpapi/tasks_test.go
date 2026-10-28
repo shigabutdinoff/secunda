@@ -97,3 +97,18 @@ func TestListTasksValidation(t *testing.T) {
 		}
 	}
 }
+
+func TestCreateTaskCommentValidation(t *testing.T) {
+	for _, id := range []string{"bad", "0"} {
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/tasks/"+id+"/comments", strings.NewReader(`{"content":"text"}`))
+		routeCtx := chi.NewRouteContext()
+		routeCtx.URLParams.Add("id", id)
+		req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, routeCtx))
+		req = req.WithContext(contextWithUserID(req, 42))
+		rec := httptest.NewRecorder()
+		NewHandler(nil, nil, testSecret).CreateTaskComment(rec, req)
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("id %q: status = %d, want 400", id, rec.Code)
+		}
+	}
+}
