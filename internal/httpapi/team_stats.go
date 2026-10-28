@@ -24,6 +24,19 @@ type topAssignee struct {
 }
 
 // GetTeamStats возвращает SQL-отчёт по команде её создателю или администратору.
+// @Summary Статистика команды
+// @Description Задачи по статусам, три исполнителя с наибольшим числом закрытых за 30 дней задач,
+// @Description среднее время закрытия в секундах и число комментариев. Доступно owner и admin.
+// @Tags teams
+// @Produce json
+// @Param team_id path int true "Команда"
+// @Success 200 {object} teamStatsResponse
+// @Failure 400 {object} object{error=string} "invalid request"
+// @Failure 401 {object} object{error=string} "unauthorized"
+// @Failure 403 {object} object{error=string} "forbidden"
+// @Failure 404 {object} object{error=string} "team not found"
+// @Security Bearer
+// @Router /api/v1/teams/{team_id}/stats [get]
 func (h *Handler) GetTeamStats(w http.ResponseWriter, r *http.Request) {
 	teamID, err := strconv.ParseUint(chi.URLParam(r, "team_id"), 10, 64)
 	if err != nil || teamID == 0 {

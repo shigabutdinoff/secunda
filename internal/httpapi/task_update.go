@@ -33,11 +33,11 @@ func (n *nullableUint64) UnmarshalJSON(data []byte) error {
 }
 
 type updateTaskRequest struct {
-	Version     *int           `json:"version"`
+	Version     *int           `json:"version" binding:"required"`
 	Title       *string        `json:"title"`
 	Description *string        `json:"description"`
 	Status      *string        `json:"status"`
-	AssigneeID  nullableUint64 `json:"assignee_id"`
+	AssigneeID  nullableUint64 `json:"assignee_id" swaggertype:"integer"`
 }
 
 func writeTaskInternalError(w http.ResponseWriter, err error) bool {
@@ -48,6 +48,21 @@ func writeTaskInternalError(w http.ResponseWriter, err error) bool {
 }
 
 // UpdateTask частично обновляет задачу и атомарно сохраняет историю изменений.
+// @Summary Частичное обновление задачи
+// @Description Меняет только переданные поля, version — текущая версия задачи. Изменения пишутся в историю.
+// @Tags tasks
+// @Accept json
+// @Produce json
+// @Param id path int true "Задача"
+// @Param body body updateTaskRequest true "Версия и изменяемые поля, assignee_id null снимает исполнителя"
+// @Success 200 {object} taskResponse
+// @Failure 400 {object} object{error=string} "invalid request или assignee must be a team member"
+// @Failure 401 {object} object{error=string} "unauthorized"
+// @Failure 403 {object} object{error=string} "forbidden"
+// @Failure 404 {object} object{error=string} "task not found"
+// @Failure 409 {object} object{error=string} "version conflict"
+// @Security Bearer
+// @Router /api/v1/tasks/{id} [put]
 func (h *Handler) UpdateTask(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.ParseUint(chi.URLParam(r, "id"), 10, 64)
 	var input updateTaskRequest

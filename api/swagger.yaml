@@ -1,0 +1,880 @@
+basePath: /
+definitions:
+  httpapi.authRequest:
+    properties:
+      email:
+        type: string
+      name:
+        type: string
+      password:
+        type: string
+    type: object
+  httpapi.createTaskCommentRequest:
+    properties:
+      content:
+        type: string
+    type: object
+  httpapi.createTaskRequest:
+    properties:
+      assignee_id:
+        type: integer
+      description:
+        type: string
+      team_id:
+        type: integer
+      title:
+        type: string
+    type: object
+  httpapi.createTeamRequest:
+    properties:
+      name:
+        type: string
+    type: object
+  httpapi.inviteMemberRequest:
+    properties:
+      email:
+        type: string
+      role:
+        type: string
+    type: object
+  httpapi.taskCommentResponse:
+    properties:
+      content:
+        type: string
+      created_at:
+        type: string
+      id:
+        type: integer
+      task_id:
+        type: integer
+      user_id:
+        type: integer
+    type: object
+  httpapi.taskHistoryResponse:
+    properties:
+      changed_by:
+        type: integer
+      changes:
+        type: object
+      created_at:
+        type: string
+      id:
+        type: integer
+      task_id:
+        type: integer
+    type: object
+  httpapi.taskResponse:
+    properties:
+      assignee_id:
+        type: integer
+      closed_at:
+        type: string
+      created_at:
+        type: string
+      created_by:
+        type: integer
+      description:
+        type: string
+      id:
+        type: integer
+      status:
+        type: string
+      team_id:
+        type: integer
+      title:
+        type: string
+      updated_at:
+        type: string
+      version:
+        type: integer
+    type: object
+  httpapi.teamResponse:
+    properties:
+      created_at:
+        type: string
+      created_by:
+        type: integer
+      id:
+        type: integer
+      name:
+        type: string
+    type: object
+  httpapi.teamStatsResponse:
+    properties:
+      avg_close_seconds:
+        type: number
+      by_status:
+        additionalProperties:
+          format: int64
+          type: integer
+        type: object
+      comments:
+        type: integer
+      top_assignees:
+        items:
+          $ref: '#/definitions/httpapi.topAssignee'
+        type: array
+    type: object
+  httpapi.topAssignee:
+    properties:
+      closed:
+        type: integer
+      name:
+        type: string
+      user_id:
+        type: integer
+    type: object
+  httpapi.updateMemberRequest:
+    properties:
+      role:
+        type: string
+    type: object
+  httpapi.updateTaskRequest:
+    properties:
+      assignee_id:
+        type: integer
+      description:
+        type: string
+      status:
+        type: string
+      title:
+        type: string
+      version:
+        type: integer
+    required:
+    - version
+    type: object
+info:
+  contact: {}
+  description: |-
+    Сервис управления задачами команд: регистрация и вход, команды и участники,
+    задачи с историей изменений и комментариями, статистика команды.
+  title: Secunda
+  version: "1.0"
+paths:
+  /api/v1/login:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Почта и пароль
+        in: body
+        name: body
+        required: true
+        schema:
+          properties:
+            email:
+              type: string
+            password:
+              type: string
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            properties:
+              token:
+                type: string
+            type: object
+        "400":
+          description: invalid request
+          schema:
+            properties:
+              error:
+                type: string
+            type: object
+        "401":
+          description: invalid credentials
+          schema:
+            properties:
+              error:
+                type: string
+            type: object
+      summary: Вход, выдаёт JWT на 24 часа
+      tags:
+      - auth
+  /api/v1/register:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Почта, пароль не короче 8 символов и имя
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/httpapi.authRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            properties:
+              email:
+                type: string
+              id:
+                type: integer
+              name:
+                type: string
+            type: object
+        "400":
+          description: invalid request
+          schema:
+            properties:
+              error:
+                type: string
+            type: object
+        "409":
+          description: email already exists
+          schema:
+            properties:
+              error:
+                type: string
+            type: object
+      summary: Регистрация пользователя
+      tags:
+      - auth
+  /api/v1/tasks:
+    get:
+      description: Ответ кешируется в Redis на 5 минут, изменение задач команды сбрасывает
+        кеш.
+      parameters:
+      - description: Команда
+        in: query
+        name: team_id
+        required: true
+        type: integer
+      - description: Статус
+        enum:
+        - todo
+        - in_progress
+        - done
+        in: query
+        name: status
+        type: string
+      - description: Исполнитель
+        in: query
+        name: assignee_id
+        type: integer
+      - default: 20
+        description: Размер страницы, 1–100
+        in: query
+        name: limit
+        type: integer
+      - default: 0
+        description: Смещение
+        in: query
+        name: offset
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/httpapi.taskResponse'
+            type: array
+        "400":
+          description: invalid request
+          schema:
+            properties:
+              error:
+                type: string
+            type: object
+        "401":
+          description: unauthorized
+          schema:
+            properties:
+              error:
+                type: string
+            type: object
+        "404":
+          description: team not found
+          schema:
+            properties:
+              error:
+                type: string
+            type: object
+      security:
+      - Bearer: []
+      summary: Список задач команды
+      tags:
+      - tasks
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Задача, исполнитель — участник команды
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/httpapi.createTaskRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/httpapi.taskResponse'
+        "400":
+          description: invalid request или assignee must be a team member
+          schema:
+            properties:
+              error:
+                type: string
+            type: object
+        "401":
+          description: unauthorized
+          schema:
+            properties:
+              error:
+                type: string
+            type: object
+        "404":
+          description: team not found
+          schema:
+            properties:
+              error:
+                type: string
+            type: object
+      security:
+      - Bearer: []
+      summary: Создание задачи в команде
+      tags:
+      - tasks
+  /api/v1/tasks/{id}:
+    put:
+      consumes:
+      - application/json
+      description: Меняет только переданные поля, version — текущая версия задачи.
+        Изменения пишутся в историю.
+      parameters:
+      - description: Задача
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Версия и изменяемые поля, assignee_id null снимает исполнителя
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/httpapi.updateTaskRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/httpapi.taskResponse'
+        "400":
+          description: invalid request или assignee must be a team member
+          schema:
+            properties:
+              error:
+                type: string
+            type: object
+        "401":
+          description: unauthorized
+          schema:
+            properties:
+              error:
+                type: string
+            type: object
+        "403":
+          description: forbidden
+          schema:
+            properties:
+              error:
+                type: string
+            type: object
+        "404":
+          description: task not found
+          schema:
+            properties:
+              error:
+                type: string
+            type: object
+        "409":
+          description: version conflict
+          schema:
+            properties:
+              error:
+                type: string
+            type: object
+      security:
+      - Bearer: []
+      summary: Частичное обновление задачи
+      tags:
+      - tasks
+  /api/v1/tasks/{id}/comments:
+    get:
+      parameters:
+      - description: Задача
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/httpapi.taskCommentResponse'
+            type: array
+        "400":
+          description: invalid request
+          schema:
+            properties:
+              error:
+                type: string
+            type: object
+        "401":
+          description: unauthorized
+          schema:
+            properties:
+              error:
+                type: string
+            type: object
+        "404":
+          description: task not found
+          schema:
+            properties:
+              error:
+                type: string
+            type: object
+      security:
+      - Bearer: []
+      summary: Комментарии задачи
+      tags:
+      - tasks
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Задача
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Текст до 5000 символов
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/httpapi.createTaskCommentRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/httpapi.taskCommentResponse'
+        "400":
+          description: invalid request
+          schema:
+            properties:
+              error:
+                type: string
+            type: object
+        "401":
+          description: unauthorized
+          schema:
+            properties:
+              error:
+                type: string
+            type: object
+        "404":
+          description: task not found
+          schema:
+            properties:
+              error:
+                type: string
+            type: object
+      security:
+      - Bearer: []
+      summary: Комментарий к задаче
+      tags:
+      - tasks
+  /api/v1/tasks/{id}/history:
+    get:
+      description: 'changes при создании — {"created":{"title":"a",...}}, при изменении
+        — поля со старым и новым значением: {"title":{"old":"a","new":"b"}}.'
+      parameters:
+      - description: Задача
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/httpapi.taskHistoryResponse'
+            type: array
+        "400":
+          description: invalid request
+          schema:
+            properties:
+              error:
+                type: string
+            type: object
+        "401":
+          description: unauthorized
+          schema:
+            properties:
+              error:
+                type: string
+            type: object
+        "404":
+          description: task not found
+          schema:
+            properties:
+              error:
+                type: string
+            type: object
+      security:
+      - Bearer: []
+      summary: История изменений задачи
+      tags:
+      - tasks
+  /api/v1/teams:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/httpapi.teamResponse'
+            type: array
+        "401":
+          description: unauthorized
+          schema:
+            properties:
+              error:
+                type: string
+            type: object
+      security:
+      - Bearer: []
+      summary: Команды текущего пользователя
+      tags:
+      - teams
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Название
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/httpapi.createTeamRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/httpapi.teamResponse'
+        "400":
+          description: invalid request
+          schema:
+            properties:
+              error:
+                type: string
+            type: object
+        "401":
+          description: unauthorized
+          schema:
+            properties:
+              error:
+                type: string
+            type: object
+      security:
+      - Bearer: []
+      summary: Создание команды, создатель становится owner
+      tags:
+      - teams
+  /api/v1/teams/{id}/invite:
+    post:
+      consumes:
+      - application/json
+      description: Доступно owner и admin команды.
+      parameters:
+      - description: Команда
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Почта зарегистрированного пользователя и роль
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/httpapi.inviteMemberRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            properties:
+              role:
+                type: string
+              team_id:
+                type: integer
+              user_id:
+                type: integer
+            type: object
+        "400":
+          description: invalid request
+          schema:
+            properties:
+              error:
+                type: string
+            type: object
+        "401":
+          description: unauthorized
+          schema:
+            properties:
+              error:
+                type: string
+            type: object
+        "403":
+          description: forbidden
+          schema:
+            properties:
+              error:
+                type: string
+            type: object
+        "404":
+          description: team not found или user not found
+          schema:
+            properties:
+              error:
+                type: string
+            type: object
+        "409":
+          description: user already in team
+          schema:
+            properties:
+              error:
+                type: string
+            type: object
+      security:
+      - Bearer: []
+      summary: Добавление пользователя в команду
+      tags:
+      - teams
+  /api/v1/teams/{id}/members/{user_id}:
+    delete:
+      description: owner удаляет любого, кроме себя; admin — только member. Участника,
+        назначенного исполнителем задач команды, удалить нельзя.
+      parameters:
+      - description: Команда
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Участник
+        in: path
+        name: user_id
+        required: true
+        type: integer
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: invalid request
+          schema:
+            properties:
+              error:
+                type: string
+            type: object
+        "401":
+          description: unauthorized
+          schema:
+            properties:
+              error:
+                type: string
+            type: object
+        "403":
+          description: forbidden
+          schema:
+            properties:
+              error:
+                type: string
+            type: object
+        "404":
+          description: team not found или member not found
+          schema:
+            properties:
+              error:
+                type: string
+            type: object
+        "409":
+          description: member has assigned tasks
+          schema:
+            properties:
+              error:
+                type: string
+            type: object
+      security:
+      - Bearer: []
+      summary: Удаление участника из команды
+      tags:
+      - teams
+    patch:
+      consumes:
+      - application/json
+      description: Доступно только owner. Роль owner не меняется и не выдаётся.
+      parameters:
+      - description: Команда
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Участник
+        in: path
+        name: user_id
+        required: true
+        type: integer
+      - description: 'Новая роль: admin или member'
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/httpapi.updateMemberRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            properties:
+              role:
+                type: string
+              team_id:
+                type: integer
+              user_id:
+                type: integer
+            type: object
+        "400":
+          description: invalid request
+          schema:
+            properties:
+              error:
+                type: string
+            type: object
+        "401":
+          description: unauthorized
+          schema:
+            properties:
+              error:
+                type: string
+            type: object
+        "403":
+          description: forbidden
+          schema:
+            properties:
+              error:
+                type: string
+            type: object
+        "404":
+          description: team not found или member not found
+          schema:
+            properties:
+              error:
+                type: string
+            type: object
+      security:
+      - Bearer: []
+      summary: Смена роли участника
+      tags:
+      - teams
+  /api/v1/teams/{team_id}/stats:
+    get:
+      description: |-
+        Задачи по статусам, три исполнителя с наибольшим числом закрытых за 30 дней задач,
+        среднее время закрытия в секундах и число комментариев. Доступно owner и admin.
+      parameters:
+      - description: Команда
+        in: path
+        name: team_id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/httpapi.teamStatsResponse'
+        "400":
+          description: invalid request
+          schema:
+            properties:
+              error:
+                type: string
+            type: object
+        "401":
+          description: unauthorized
+          schema:
+            properties:
+              error:
+                type: string
+            type: object
+        "403":
+          description: forbidden
+          schema:
+            properties:
+              error:
+                type: string
+            type: object
+        "404":
+          description: team not found
+          schema:
+            properties:
+              error:
+                type: string
+            type: object
+      security:
+      - Bearer: []
+      summary: Статистика команды
+      tags:
+      - teams
+  /health:
+    get:
+      produces:
+      - text/plain
+      responses:
+        "200":
+          description: ok
+          schema:
+            type: string
+        "503":
+          description: unavailable
+          schema:
+            type: string
+      summary: Проверка MySQL и Redis
+      tags:
+      - service
+securityDefinitions:
+  Bearer:
+    description: Bearer и токен из /api/v1/login.
+    in: header
+    name: Authorization
+    type: apiKey
+swagger: "2.0"

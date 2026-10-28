@@ -17,7 +17,7 @@ type taskHistoryResponse struct {
 	ID        uint64          `json:"id"`
 	TaskID    uint64          `json:"task_id"`
 	ChangedBy uint64          `json:"changed_by"`
-	Changes   json.RawMessage `json:"changes"`
+	Changes   json.RawMessage `json:"changes" swaggertype:"object"`
 	CreatedAt time.Time       `json:"created_at"`
 }
 
@@ -58,6 +58,17 @@ func (h *Handler) accessibleTask(w http.ResponseWriter, r *http.Request) (uint64
 }
 
 // ListTaskHistory возвращает историю задачи участнику её команды.
+// @Summary История изменений задачи
+// @Description changes при создании — {"created":{"title":"a",...}}, при изменении — поля со старым и новым значением: {"title":{"old":"a","new":"b"}}.
+// @Tags tasks
+// @Produce json
+// @Param id path int true "Задача"
+// @Success 200 {array} taskHistoryResponse
+// @Failure 400 {object} object{error=string} "invalid request"
+// @Failure 401 {object} object{error=string} "unauthorized"
+// @Failure 404 {object} object{error=string} "task not found"
+// @Security Bearer
+// @Router /api/v1/tasks/{id}/history [get]
 func (h *Handler) ListTaskHistory(w http.ResponseWriter, r *http.Request) {
 	id, ok := h.accessibleTask(w, r)
 	if !ok {
@@ -83,6 +94,18 @@ func (h *Handler) ListTaskHistory(w http.ResponseWriter, r *http.Request) {
 }
 
 // CreateTaskComment добавляет комментарий от участника команды задачи.
+// @Summary Комментарий к задаче
+// @Tags tasks
+// @Accept json
+// @Produce json
+// @Param id path int true "Задача"
+// @Param body body createTaskCommentRequest true "Текст до 5000 символов"
+// @Success 201 {object} taskCommentResponse
+// @Failure 400 {object} object{error=string} "invalid request"
+// @Failure 401 {object} object{error=string} "unauthorized"
+// @Failure 404 {object} object{error=string} "task not found"
+// @Security Bearer
+// @Router /api/v1/tasks/{id}/comments [post]
 func (h *Handler) CreateTaskComment(w http.ResponseWriter, r *http.Request) {
 	id, ok := h.accessibleTask(w, r)
 	if !ok {
@@ -114,6 +137,16 @@ func (h *Handler) CreateTaskComment(w http.ResponseWriter, r *http.Request) {
 }
 
 // ListTaskComments возвращает комментарии задачи участнику её команды.
+// @Summary Комментарии задачи
+// @Tags tasks
+// @Produce json
+// @Param id path int true "Задача"
+// @Success 200 {array} taskCommentResponse
+// @Failure 400 {object} object{error=string} "invalid request"
+// @Failure 401 {object} object{error=string} "unauthorized"
+// @Failure 404 {object} object{error=string} "task not found"
+// @Security Bearer
+// @Router /api/v1/tasks/{id}/comments [get]
 func (h *Handler) ListTaskComments(w http.ResponseWriter, r *http.Request) {
 	id, ok := h.accessibleTask(w, r)
 	if !ok {

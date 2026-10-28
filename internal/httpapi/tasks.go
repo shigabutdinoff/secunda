@@ -45,6 +45,17 @@ type taskListFilter struct {
 }
 
 // CreateTask создаёт задачу и первую запись её истории.
+// @Summary Создание задачи в команде
+// @Tags tasks
+// @Accept json
+// @Produce json
+// @Param body body createTaskRequest true "Задача, исполнитель — участник команды"
+// @Success 201 {object} taskResponse
+// @Failure 400 {object} object{error=string} "invalid request или assignee must be a team member"
+// @Failure 401 {object} object{error=string} "unauthorized"
+// @Failure 404 {object} object{error=string} "team not found"
+// @Security Bearer
+// @Router /api/v1/tasks [post]
 func (h *Handler) CreateTask(w http.ResponseWriter, r *http.Request) {
 	var input createTaskRequest
 	if !decodeTeamJSON(w, r, &input) {
@@ -124,6 +135,21 @@ func (h *Handler) CreateTask(w http.ResponseWriter, r *http.Request) {
 }
 
 // ListTasks возвращает задачи команды с фильтрами и пагинацией.
+// @Summary Список задач команды
+// @Description Ответ кешируется в Redis на 5 минут, изменение задач команды сбрасывает кеш.
+// @Tags tasks
+// @Produce json
+// @Param team_id query int true "Команда"
+// @Param status query string false "Статус" Enums(todo, in_progress, done)
+// @Param assignee_id query int false "Исполнитель"
+// @Param limit query int false "Размер страницы, 1–100" default(20)
+// @Param offset query int false "Смещение" default(0)
+// @Success 200 {array} taskResponse
+// @Failure 400 {object} object{error=string} "invalid request"
+// @Failure 401 {object} object{error=string} "unauthorized"
+// @Failure 404 {object} object{error=string} "team not found"
+// @Security Bearer
+// @Router /api/v1/tasks [get]
 func (h *Handler) ListTasks(w http.ResponseWriter, r *http.Request) {
 	filter, ok := parseTaskListFilter(w, r)
 	if !ok {

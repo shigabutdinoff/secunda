@@ -63,6 +63,8 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
+      - name: описание Swagger совпадает с аннотациями
+        run: go generate ./internal/httpapi && git diff --exit-code api/
       - run: go test -race -coverprofile=cover.out ./...
       - uses: vladopajic/go-test-coverage@v2
         with:

@@ -40,6 +40,16 @@ func decodeTeamJSON(w http.ResponseWriter, r *http.Request, input any) bool {
 }
 
 // CreateTeam создаёт команду и назначает текущего пользователя создателем.
+// @Summary Создание команды, создатель становится owner
+// @Tags teams
+// @Accept json
+// @Produce json
+// @Param body body createTeamRequest true "Название"
+// @Success 201 {object} teamResponse
+// @Failure 400 {object} object{error=string} "invalid request"
+// @Failure 401 {object} object{error=string} "unauthorized"
+// @Security Bearer
+// @Router /api/v1/teams [post]
 func (h *Handler) CreateTeam(w http.ResponseWriter, r *http.Request) {
 	var input createTeamRequest
 	if !decodeTeamJSON(w, r, &input) {
@@ -88,6 +98,13 @@ func (h *Handler) CreateTeam(w http.ResponseWriter, r *http.Request) {
 }
 
 // ListTeams возвращает команды, в которых состоит текущий пользователь.
+// @Summary Команды текущего пользователя
+// @Tags teams
+// @Produce json
+// @Success 200 {array} teamResponse
+// @Failure 401 {object} object{error=string} "unauthorized"
+// @Security Bearer
+// @Router /api/v1/teams [get]
 func (h *Handler) ListTeams(w http.ResponseWriter, r *http.Request) {
 	userID, ok := UserID(r.Context())
 	if !ok {
@@ -118,6 +135,21 @@ func (h *Handler) ListTeams(w http.ResponseWriter, r *http.Request) {
 }
 
 // InviteMember добавляет пользователя в команду создателем или администратором.
+// @Summary Добавление пользователя в команду
+// @Description Доступно owner и admin команды.
+// @Tags teams
+// @Accept json
+// @Produce json
+// @Param id path int true "Команда"
+// @Param body body inviteMemberRequest true "Почта зарегистрированного пользователя и роль"
+// @Success 201 {object} object{team_id=int,user_id=int,role=string}
+// @Failure 400 {object} object{error=string} "invalid request"
+// @Failure 401 {object} object{error=string} "unauthorized"
+// @Failure 403 {object} object{error=string} "forbidden"
+// @Failure 404 {object} object{error=string} "team not found или user not found"
+// @Failure 409 {object} object{error=string} "user already in team"
+// @Security Bearer
+// @Router /api/v1/teams/{id}/invite [post]
 func (h *Handler) InviteMember(w http.ResponseWriter, r *http.Request) {
 	teamID, err := strconv.ParseUint(chi.URLParam(r, "id"), 10, 64)
 	var input inviteMemberRequest
@@ -211,6 +243,21 @@ func (h *Handler) teamMemberTarget(w http.ResponseWriter, r *http.Request) (team
 }
 
 // UpdateMemberRole меняет роль участника; доступно только создателю, роль создателя не меняется.
+// @Summary Смена роли участника
+// @Description Доступно только owner. Роль owner не меняется и не выдаётся.
+// @Tags teams
+// @Accept json
+// @Produce json
+// @Param id path int true "Команда"
+// @Param user_id path int true "Участник"
+// @Param body body updateMemberRequest true "Новая роль: admin или member"
+// @Success 200 {object} object{team_id=int,user_id=int,role=string}
+// @Failure 400 {object} object{error=string} "invalid request"
+// @Failure 401 {object} object{error=string} "unauthorized"
+// @Failure 403 {object} object{error=string} "forbidden"
+// @Failure 404 {object} object{error=string} "team not found или member not found"
+// @Security Bearer
+// @Router /api/v1/teams/{id}/members/{user_id} [patch]
 func (h *Handler) UpdateMemberRole(w http.ResponseWriter, r *http.Request) {
 	var input updateMemberRequest
 	if !decodeTeamJSON(w, r, &input) {
@@ -237,6 +284,19 @@ func (h *Handler) UpdateMemberRole(w http.ResponseWriter, r *http.Request) {
 
 // RemoveMember удаляет участника: создатель — любого, кроме себя, администратор — только member.
 // Участника с задачами в команде удалить нельзя, иначе исполнитель окажется вне команды.
+// @Summary Удаление участника из команды
+// @Description owner удаляет любого, кроме себя; admin — только member. Участника, назначенного исполнителем задач команды, удалить нельзя.
+// @Tags teams
+// @Param id path int true "Команда"
+// @Param user_id path int true "Участник"
+// @Success 204
+// @Failure 400 {object} object{error=string} "invalid request"
+// @Failure 401 {object} object{error=string} "unauthorized"
+// @Failure 403 {object} object{error=string} "forbidden"
+// @Failure 404 {object} object{error=string} "team not found или member not found"
+// @Failure 409 {object} object{error=string} "member has assigned tasks"
+// @Security Bearer
+// @Router /api/v1/teams/{id}/members/{user_id} [delete]
 func (h *Handler) RemoveMember(w http.ResponseWriter, r *http.Request) {
 	teamID, targetID, callerRole, targetRole, ok := h.teamMemberTarget(w, r)
 	if !ok {

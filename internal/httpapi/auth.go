@@ -48,6 +48,15 @@ func decodeAuthRequest(w http.ResponseWriter, r *http.Request) (authRequest, boo
 }
 
 // Register создаёт пользователя с хешированным паролем.
+// @Summary Регистрация пользователя
+// @Tags auth
+// @Accept json
+// @Produce json
+// @Param body body authRequest true "Почта, пароль не короче 8 символов и имя"
+// @Success 201 {object} object{id=int,email=string,name=string}
+// @Failure 400 {object} object{error=string} "invalid request"
+// @Failure 409 {object} object{error=string} "email already exists"
+// @Router /api/v1/register [post]
 func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 	input, ok := decodeAuthRequest(w, r)
 	if !ok {
@@ -83,6 +92,15 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 }
 
 // Login проверяет учётные данные и выдаёт JWT.
+// @Summary Вход, выдаёт JWT на 24 часа
+// @Tags auth
+// @Accept json
+// @Produce json
+// @Param body body object{email=string,password=string} true "Почта и пароль"
+// @Success 200 {object} object{token=string}
+// @Failure 400 {object} object{error=string} "invalid request"
+// @Failure 401 {object} object{error=string} "invalid credentials"
+// @Router /api/v1/login [post]
 func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	input, ok := decodeAuthRequest(w, r)
 	if !ok {

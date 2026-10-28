@@ -23,6 +23,7 @@ import (
 	_ "github.com/golang-migrate/migrate/v4/source/file"
 	"github.com/redis/go-redis/v9"
 
+	"github.com/shigabutdinoff/secunda/api"
 	"github.com/shigabutdinoff/secunda/internal/config"
 	"github.com/shigabutdinoff/secunda/internal/httpapi"
 )
@@ -110,6 +111,16 @@ func router(db *sql.DB, rdb *redis.Client, jwtSecret string) chi.Router {
 		r.Delete("/{id}/members/{user_id}", handler.RemoveMember)
 		r.Get("/{team_id}/stats", handler.GetTeamStats)
 	})
+	r.Get("/swagger/doc.json", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(api.Swagger)
+	})
+	// @Summary Проверка MySQL и Redis
+	// @Tags service
+	// @Produce plain
+	// @Success 200 {string} string "ok"
+	// @Failure 503 {string} string "unavailable"
+	// @Router /health [get]
 	r.Get("/health", func(w http.ResponseWriter, r *http.Request) {
 		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 		defer cancel()
