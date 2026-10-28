@@ -23,6 +23,10 @@ type Config struct {
 	// RedisBreakerTimeout — сколько breaker держится разомкнутым до пробного вызова.
 	RedisBreakerTimeout time.Duration `env:"REDIS_BREAKER_TIMEOUT"`
 	MigrationsPath      string        `env:"MIGRATIONS_PATH"`
+	// RateLimitRPS — запросов в секунду на пользователя или IP.
+	RateLimitRPS float64 `env:"RATE_LIMIT_RPS"`
+	// RateLimitBurst — запас запросов сверх RateLimitRPS.
+	RateLimitBurst int `env:"RATE_LIMIT_BURST"`
 	// LogLevel — уровень журнала zap: debug, info, warn, error.
 	LogLevel string `env:"LOG_LEVEL"`
 }
@@ -38,6 +42,8 @@ func Parse(args []string) (Config, error) {
 	fs.UintVar(&cfg.RedisBreakerFailures, "rf", 5, "сбоев Redis подряд до размыкания breaker")
 	fs.DurationVar(&cfg.RedisBreakerTimeout, "rt", 30*time.Second, "время до пробного вызова Redis")
 	fs.StringVar(&cfg.MigrationsPath, "m", "migrations", "каталог миграций")
+	fs.Float64Var(&cfg.RateLimitRPS, "rl", 10, "запросов в секунду на ключ")
+	fs.IntVar(&cfg.RateLimitBurst, "rb", 20, "запас запросов сверх лимита")
 	fs.StringVar(&cfg.LogLevel, "l", "info", "уровень журнала")
 	if err := fs.Parse(args); err != nil {
 		return Config{}, err

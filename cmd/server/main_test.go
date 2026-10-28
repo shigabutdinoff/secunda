@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"database/sql"
-	"go.uber.org/zap"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -11,6 +10,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/shigabutdinoff/secunda/internal/config"
+	"go.uber.org/zap"
 
 	"github.com/redis/go-redis/v9"
 )
@@ -51,14 +53,14 @@ func TestHealthUnavailable(t *testing.T) {
 	defer func() { _ = rdb.Close() }()
 
 	rec := httptest.NewRecorder()
-	router(db, rdb, "test-secret", zap.NewNop()).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/health", nil))
+	router(db, rdb, testConfig(), zap.NewNop()).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/health", nil))
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Fatalf("code = %d, want 503", rec.Code)
 	}
 }
 
 func TestAuthRoutes(t *testing.T) {
-	r := router(nil, nil, "test-secret", zap.NewNop())
+	r := router(nil, nil, testConfig(), zap.NewNop())
 	for _, path := range []string{"/api/v1/register", "/api/v1/login"} {
 		rec := httptest.NewRecorder()
 		r.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, path, strings.NewReader(`{"email":`)))
@@ -69,7 +71,7 @@ func TestAuthRoutes(t *testing.T) {
 }
 
 func TestTeamRoutesRequireAuthentication(t *testing.T) {
-	r := router(nil, nil, "test-secret", zap.NewNop())
+	r := router(nil, nil, testConfig(), zap.NewNop())
 	for _, tc := range []struct{ method, path string }{
 		{http.MethodPost, "/api/v1/teams"},
 		{http.MethodGet, "/api/v1/teams"},
@@ -147,4 +149,8 @@ func TestServeStopsOnCancel(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("serve не остановился")
 	}
+}
+
+func testConfig() config.Config {
+	return config.Config{JWTSecret: "test-secret", RateLimitRPS: 10, RateLimitBurst: 20}
 }

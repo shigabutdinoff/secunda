@@ -84,7 +84,7 @@ func run(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("listen %s: %w", cfg.Address, err)
 	}
-	srv := &http.Server{Handler: router(db, rdb, cfg.JWTSecret, logger), ReadHeaderTimeout: 10 * time.Second}
+	srv := &http.Server{Handler: router(db, rdb, cfg, logger), ReadHeaderTimeout: 10 * time.Second}
 	logger.Info("Сервер слушает", zap.String("address", cfg.Address))
 	return serve(ctx, srv, l, grace)
 }
@@ -102,15 +102,16 @@ func migrateUp(path, dsn string) error {
 	return nil
 }
 
-func router(db *sql.DB, rdb *redis.Client, jwtSecret string, logger *zap.Logger) chi.Router {
+func router(db *sql.DB, rdb *redis.Client, cfg config.Config, logger *zap.Logger) chi.Router {
 	r := chi.NewRouter()
 	r.Use(httpapi.WithLogging(logger))
 	r.Use(middleware.Recoverer)
-	handler := httpapi.NewHandler(db, rdb, jwtSecret)
-	r.Post("/api/v1/register", handler.Register)
-	r.Post("/api/v1/login", handler.Login)
+	handler := httpapi.NewHandler(db, rdb, cfg.JWTSecret)
+	limiter := httpapi.NewRateLimiter(cfg.RateLimitRPS, cfg.RateLimitBurst)
+	r.With(limiter.Middleware).Post("/api/v1/register", handler.Register)
+	r.With(limiter.Middleware).Post("/api/v1/login", handler.Login)
 	r.Route("/api/v1/tasks", func(r chi.Router) {
-		r.Use(handler.Authenticate)
+		r.Use(handler.Authenticate, limiter.Middleware)
 		r.Post("/", handler.CreateTask)
 		r.Get("/", handler.ListTasks)
 		r.Put("/{id}", handler.UpdateTask)
@@ -119,7 +120,7 @@ func router(db *sql.DB, rdb *redis.Client, jwtSecret string, logger *zap.Logger)
 		r.Get("/{id}/comments", handler.ListTaskComments)
 	})
 	r.Route("/api/v1/teams", func(r chi.Router) {
-		r.Use(handler.Authenticate)
+		r.Use(handler.Authenticate, limiter.Middleware)
 		r.Post("/", handler.CreateTeam)
 		r.Get("/", handler.ListTeams)
 		r.Post("/{id}/invite", handler.InviteMember)
