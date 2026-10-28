@@ -868,17 +868,32 @@ paths:
       - teams
   /health:
     get:
+      description: 'Статус каждой зависимости: ok или unavailable.'
       produces:
-      - text/plain
+      - application/json
       responses:
         "200":
-          description: ok
+          description: OK
           schema:
-            type: string
+            properties:
+              mysql:
+                type: string
+              redis:
+                type: string
+              status:
+                type: string
+            type: object
         "503":
-          description: unavailable
+          description: Service Unavailable
           schema:
-            type: string
+            properties:
+              mysql:
+                type: string
+              redis:
+                type: string
+              status:
+                type: string
+            type: object
       summary: Проверка MySQL и Redis
       tags:
       - service

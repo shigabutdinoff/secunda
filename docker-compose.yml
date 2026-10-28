@@ -11,6 +11,13 @@ services:
     depends_on:
       mysql: {condition: service_healthy}
       redis: {condition: service_healthy}
+    healthcheck:
+      test: [CMD, wget, -qO-, http://127.0.0.1:8080/health]
+      interval: 5s
+      timeout: 3s
+      start_period: 10s
+      retries: 12
+    restart: unless-stopped
 
   mysql:
     image: mysql:8.4
@@ -24,7 +31,10 @@ services:
       # TCP, а не сокет: во время init временный сервер без сети уже отвечает на сокет
       test: [CMD-SHELL, "mysqladmin ping -h 127.0.0.1 -u$$MYSQL_USER -p$$MYSQL_PASSWORD --silent"]
       interval: 2s
+      timeout: 3s
+      start_period: 30s
       retries: 60
+    restart: unless-stopped
 
   redis:
     image: redis:8-alpine
@@ -32,7 +42,10 @@ services:
     healthcheck:
       test: [CMD, redis-cli, ping]
       interval: 2s
+      timeout: 3s
+      start_period: 5s
       retries: 30
+    restart: unless-stopped
 
 volumes:
   mysql:

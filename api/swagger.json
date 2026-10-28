@@ -1115,8 +1115,9 @@
         },
         "/health": {
             "get": {
+                "description": "Статус каждой зависимости: ok или unavailable.",
                 "produces": [
-                    "text/plain"
+                    "application/json"
                 ],
                 "tags": [
                     "service"
@@ -1124,15 +1125,37 @@
                 "summary": "Проверка MySQL и Redis",
                 "responses": {
                     "200": {
-                        "description": "ok",
+                        "description": "OK",
                         "schema": {
-                            "type": "string"
+                            "type": "object",
+                            "properties": {
+                                "mysql": {
+                                    "type": "string"
+                                },
+                                "redis": {
+                                    "type": "string"
+                                },
+                                "status": {
+                                    "type": "string"
+                                }
+                            }
                         }
                     },
                     "503": {
-                        "description": "unavailable",
+                        "description": "Service Unavailable",
                         "schema": {
-                            "type": "string"
+                            "type": "object",
+                            "properties": {
+                                "mysql": {
+                                    "type": "string"
+                                },
+                                "redis": {
+                                    "type": "string"
+                                },
+                                "status": {
+                                    "type": "string"
+                                }
+                            }
                         }
                     }
                 }

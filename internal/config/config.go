@@ -13,16 +13,20 @@ import (
 
 // Config — настройки сервиса.
 type Config struct {
-	Address     string `env:"ADDRESS"`
+	// Address — адрес HTTP-сервера.
+	Address string `env:"ADDRESS"`
+	// DatabaseDSN — строка подключения к MySQL.
 	DatabaseDSN string `env:"DATABASE_DSN"`
 	// JWTSecret — секрет для подписи JWT.
 	JWTSecret string `env:"JWT_SECRET"`
+	// RedisAddr — адрес Redis.
 	RedisAddr string `env:"REDIS_ADDR"`
 	// RedisBreakerFailures — сбоев Redis подряд до размыкания breaker.
 	RedisBreakerFailures uint `env:"REDIS_BREAKER_FAILURES"`
 	// RedisBreakerTimeout — сколько breaker держится разомкнутым до пробного вызова.
 	RedisBreakerTimeout time.Duration `env:"REDIS_BREAKER_TIMEOUT"`
-	MigrationsPath      string        `env:"MIGRATIONS_PATH"`
+	// MigrationsPath — каталог SQL-миграций.
+	MigrationsPath string `env:"MIGRATIONS_PATH"`
 	// RateLimitRPS — запросов в секунду на пользователя или IP.
 	RateLimitRPS float64 `env:"RATE_LIMIT_RPS"`
 	// RateLimitBurst — запас запросов сверх RateLimitRPS.

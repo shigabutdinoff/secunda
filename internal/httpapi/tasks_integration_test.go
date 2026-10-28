@@ -286,7 +286,7 @@ func TestTaskListCacheIntegration(t *testing.T) {
 	f.handler.storeTaskList(staleRequest, f.teamID, 0, fmt.Sprintf("tasks:%d:v0::0:20:0:", f.teamID), cached)
 	rec = listTasksForTest(t, f, f.memberID, "")
 	var refreshed taskListResponse
-	if err := json.Unmarshal(rec.Body.Bytes(), &refreshed); err != nil || len(refreshed.Items) != 3 || refreshed.Items[0].ID != second.ID {
+	if err = json.Unmarshal(rec.Body.Bytes(), &refreshed); err != nil || len(refreshed.Items) != 3 || refreshed.Items[0].ID != second.ID {
 		t.Fatalf("refreshed list = %s, error = %v", rec.Body, err)
 	}
 	ctx, cancel := context.WithCancel(t.Context())

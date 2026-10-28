@@ -15,6 +15,7 @@ func TestCreateTeamValidation(t *testing.T) {
 		req := authenticatedTeamRequest(http.MethodPost, "/api/v1/teams", body, "1")
 		rec := httptest.NewRecorder()
 		NewHandler(nil, nil, testSecret).CreateTeam(rec, req)
+		wantJSON(t, rec)
 		if rec.Code != http.StatusBadRequest {
 			t.Errorf("body %q: status = %d, want 400", body, rec.Code)
 		}
@@ -30,6 +31,7 @@ func TestInviteMemberValidation(t *testing.T) {
 		req := authenticatedTeamRequest(http.MethodPost, "/api/v1/teams/1/invite", body, "1")
 		rec := httptest.NewRecorder()
 		NewHandler(nil, nil, testSecret).InviteMember(rec, req)
+		wantJSON(t, rec)
 		if rec.Code != http.StatusBadRequest {
 			t.Errorf("body %q: status = %d, want 400", body, rec.Code)
 		}
@@ -40,6 +42,7 @@ func TestInviteMemberRejectsInvalidTeamID(t *testing.T) {
 	req := authenticatedTeamRequest(http.MethodPost, "/api/v1/teams/bad/invite", `{"email":"user@example.com","role":"member"}`, "bad")
 	rec := httptest.NewRecorder()
 	NewHandler(nil, nil, testSecret).InviteMember(rec, req)
+	wantJSON(t, rec)
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want 400", rec.Code)
 	}
@@ -64,6 +67,7 @@ func TestMemberEndpointsValidation(t *testing.T) {
 		chi.RouteContext(req.Context()).URLParams.Add("user_id", tc.userID)
 		rec := httptest.NewRecorder()
 		NewHandler(nil, nil, testSecret).UpdateMemberRole(rec, req)
+		wantJSON(t, rec)
 		if rec.Code != http.StatusBadRequest {
 			t.Errorf("%+v: status = %d, want 400", tc, rec.Code)
 		}
@@ -72,7 +76,16 @@ func TestMemberEndpointsValidation(t *testing.T) {
 	chi.RouteContext(req.Context()).URLParams.Add("user_id", "x")
 	rec := httptest.NewRecorder()
 	NewHandler(nil, nil, testSecret).RemoveMember(rec, req)
+	wantJSON(t, rec)
 	if rec.Code != http.StatusBadRequest {
 		t.Errorf("remove status = %d, want 400", rec.Code)
+	}
+}
+
+// wantJSON проверяет, что ответ отдан как JSON.
+func wantJSON(t *testing.T, rec *httptest.ResponseRecorder) {
+	t.Helper()
+	if got := rec.Header().Get("Content-Type"); got != "application/json" {
+		t.Errorf("Content-Type = %q, want application/json", got)
 	}
 }

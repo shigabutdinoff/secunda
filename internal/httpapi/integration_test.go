@@ -22,7 +22,7 @@ func openIntegrationTestDB(t *testing.T) *sql.DB {
 		t.Fatalf("init migrations: %v", err)
 	}
 	defer func() { _, _ = m.Close() }()
-	if err := m.Up(); err != nil && !errors.Is(err, migrate.ErrNoChange) {
+	if err = m.Up(); err != nil && !errors.Is(err, migrate.ErrNoChange) {
 		t.Fatalf("apply migrations: %v", err)
 	}
 	db, err := sql.Open("mysql", dsn)

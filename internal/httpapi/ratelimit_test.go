@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 )
 
 func TestRateLimiter(t *testing.T) {
@@ -48,4 +49,16 @@ func TestRateLimiter(t *testing.T) {
 			t.Fatalf("user 2: status %d", w.Code)
 		}
 	})
+}
+
+func TestRateLimiterSweep(t *testing.T) {
+	l := NewRateLimiter(1, 1)
+	now := time.Unix(0, 0)
+	l.now = func() time.Time { return now }
+	l.limiter("ip:a")
+	now = now.Add(limiterIdle)
+	l.limiter("ip:b")
+	if _, ok := l.limiters["ip:a"]; ok || len(l.limiters) != 1 {
+		t.Fatalf("idle key not swept: %v", l.limiters)
+	}
 }

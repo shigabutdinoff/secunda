@@ -194,7 +194,7 @@ func (h *Handler) InviteMember(w http.ResponseWriter, r *http.Request) {
 	}
 	if _, err = h.db.ExecContext(r.Context(), "INSERT INTO team_members (team_id, user_id, role) VALUES (?, ?, ?)", teamID, invitedID, input.Role); err != nil {
 		var mysqlErr *mysql.MySQLError
-		if errors.As(err, &mysqlErr) && mysqlErr.Number == 1062 {
+		if errors.As(err, &mysqlErr) && mysqlErr.Number == mysqlDuplicateEntry {
 			writeError(w, http.StatusConflict, "user already in team")
 			return
 		}
@@ -275,9 +275,25 @@ func (h *Handler) UpdateMemberRole(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusForbidden, "forbidden")
 		return
 	}
-	if _, err := h.db.ExecContext(r.Context(), "UPDATE team_members SET role = ? WHERE team_id = ? AND user_id = ? AND role <> 'owner'", input.Role, teamID, targetID); err != nil {
+	res, err := h.db.ExecContext(r.Context(), "UPDATE team_members SET role = ? WHERE team_id = ? AND user_id = ? AND role <> 'owner'", input.Role, teamID, targetID)
+	if err != nil {
 		internalError(w, r, err)
 		return
+	}
+	if n, err := res.RowsAffected(); err != nil {
+		internalError(w, r, err)
+		return
+	} else if n == 0 {
+		var one int
+		err := h.db.QueryRowContext(r.Context(), "SELECT 1 FROM team_members WHERE team_id = ? AND user_id = ? AND role <> 'owner'", teamID, targetID).Scan(&one)
+		if errors.Is(err, sql.ErrNoRows) {
+			writeError(w, http.StatusNotFound, "member not found")
+			return
+		}
+		if err != nil {
+			internalError(w, r, err)
+			return
+		}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"team_id": teamID, "user_id": targetID, "role": input.Role})
 }

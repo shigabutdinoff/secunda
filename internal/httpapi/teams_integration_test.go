@@ -194,6 +194,7 @@ func teamAPIRequest(t *testing.T, h *Handler, router http.Handler, userID uint64
 	req.Header.Set("Authorization", "Bearer "+token)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
+	wantJSON(t, rec)
 	return rec
 }
 

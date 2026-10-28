@@ -120,7 +120,12 @@ func (h *Handler) CreateTaskComment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	userID, _ := UserID(r.Context())
-	result, err := h.db.ExecContext(r.Context(), "INSERT INTO task_comments (task_id, user_id, content) VALUES (?, ?, ?)", id, userID, input.Content)
+	tx, err := h.db.BeginTx(r.Context(), nil)
+	if writeTaskInternalError(w, r, err) {
+		return
+	}
+	defer func() { _ = tx.Rollback() }()
+	result, err := tx.ExecContext(r.Context(), "INSERT INTO task_comments (task_id, user_id, content) VALUES (?, ?, ?)", id, userID, input.Content)
 	if writeTaskInternalError(w, r, err) {
 		return
 	}
@@ -129,8 +134,11 @@ func (h *Handler) CreateTaskComment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	comment := taskCommentResponse{ID: uint64(commentID), TaskID: id, UserID: userID, Content: input.Content}
-	err = h.db.QueryRowContext(r.Context(), "SELECT created_at FROM task_comments WHERE id = ?", comment.ID).Scan(&comment.CreatedAt)
+	err = tx.QueryRowContext(r.Context(), "SELECT created_at FROM task_comments WHERE id = ?", comment.ID).Scan(&comment.CreatedAt)
 	if writeTaskInternalError(w, r, err) {
+		return
+	}
+	if writeTaskInternalError(w, r, tx.Commit()) {
 		return
 	}
 	writeJSON(w, http.StatusCreated, comment)

@@ -185,13 +185,13 @@ func (h *Handler) ListTasks(w http.ResponseWriter, r *http.Request) {
 	generation := h.taskCacheGeneration(r.Context(), filter.teamID)
 	cacheKey := taskListCacheKey(filter, generation)
 	if h.cache != nil {
-		cached, err := h.cache.Get(r.Context(), cacheKey).Bytes()
-		if err != nil && !errors.Is(err, redis.Nil) {
-			loggerFrom(r.Context()).Warn("read task list cache", zap.Error(err))
+		cached, cacheErr := h.cache.Get(r.Context(), cacheKey).Bytes()
+		if cacheErr != nil && !errors.Is(cacheErr, redis.Nil) {
+			loggerFrom(r.Context()).Warn("read task list cache", zap.Error(cacheErr))
 		}
-		if err == nil {
+		if cacheErr == nil {
 			var page taskListResponse
-			if err := json.Unmarshal(cached, &page); err != nil {
+			if err = json.Unmarshal(cached, &page); err != nil {
 				loggerFrom(r.Context()).Warn("decode task list cache", zap.Error(err))
 			} else {
 				writeJSON(w, http.StatusOK, page)
@@ -199,6 +199,23 @@ func (h *Handler) ListTasks(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+	v, err, _ := h.taskLists.Do(cacheKey, func() (any, error) {
+		ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), 10*time.Second)
+		defer cancel()
+		page, queryErr := h.queryTaskPage(ctx, filter)
+		if queryErr == nil {
+			h.storeTaskList(r.WithContext(ctx), filter.teamID, generation, cacheKey, page)
+		}
+		return page, queryErr
+	})
+	if err != nil {
+		internalError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, v.(taskListResponse))
+}
+
+func (h *Handler) queryTaskPage(ctx context.Context, filter taskListFilter) (taskListResponse, error) {
 	query := strings.Builder{}
 	args := []any{filter.teamID}
 	query.WriteString("SELECT id, team_id, title, description, status, created_by, assignee_id, created_at, updated_at, closed_at, version FROM tasks WHERE team_id = ?")
@@ -216,24 +233,21 @@ func (h *Handler) ListTasks(w http.ResponseWriter, r *http.Request) {
 	}
 	query.WriteString(" ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?")
 	args = append(args, filter.limit+1, filter.offset)
-	rows, err := h.db.QueryContext(r.Context(), query.String(), args...)
+	rows, err := h.db.QueryContext(ctx, query.String(), args...)
 	if err != nil {
-		internalError(w, r, err)
-		return
+		return taskListResponse{}, fmt.Errorf("query tasks: %w", err)
 	}
 	defer func() { _ = rows.Close() }()
 	tasks := make([]taskResponse, 0)
 	for rows.Next() {
 		var task taskResponse
 		if err := rows.Scan(&task.ID, &task.TeamID, &task.Title, &task.Description, &task.Status, &task.CreatedBy, &task.AssigneeID, &task.CreatedAt, &task.UpdatedAt, &task.ClosedAt, &task.Version); err != nil {
-			internalError(w, r, err)
-			return
+			return taskListResponse{}, fmt.Errorf("scan task: %w", err)
 		}
 		tasks = append(tasks, task)
 	}
 	if err := rows.Err(); err != nil {
-		internalError(w, r, err)
-		return
+		return taskListResponse{}, fmt.Errorf("read tasks: %w", err)
 	}
 	page := taskListResponse{Items: tasks}
 	if uint64(len(tasks)) > filter.limit {
@@ -242,8 +256,7 @@ func (h *Handler) ListTasks(w http.ResponseWriter, r *http.Request) {
 		next := base64.RawURLEncoding.EncodeToString([]byte(last.CreatedAt.UTC().Format(time.RFC3339Nano) + "|" + strconv.FormatUint(last.ID, 10)))
 		page.NextCursor = &next
 	}
-	h.storeTaskList(r, filter.teamID, generation, cacheKey, page)
-	writeJSON(w, http.StatusOK, page)
+	return page, nil
 }
 
 func taskListCacheKey(filter taskListFilter, generation uint64) string {

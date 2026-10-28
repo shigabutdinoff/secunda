@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"go.uber.org/zap"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -14,6 +13,7 @@ import (
 	"github.com/getkin/kin-openapi/openapi2"
 	"github.com/getkin/kin-openapi/openapi2conv"
 	"github.com/go-chi/chi/v5"
+	"go.uber.org/zap"
 
 	"github.com/shigabutdinoff/secunda/api"
 )
@@ -28,7 +28,7 @@ func TestSwaggerMatchesRoutes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := doc.Validate(context.Background()); err != nil {
+	if err = doc.Validate(context.Background()); err != nil {
 		t.Fatal("описание API не прошло проверку OpenAPI: ", err)
 	}
 	var described []string

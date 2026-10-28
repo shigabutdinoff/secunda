@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -18,6 +19,7 @@ type nullableUint64 struct {
 	value *uint64
 }
 
+// UnmarshalJSON отличает отсутствующее поле от явного null.
 func (n *nullableUint64) UnmarshalJSON(data []byte) error {
 	n.set = true
 	if string(data) == "null" {
@@ -26,7 +28,7 @@ func (n *nullableUint64) UnmarshalJSON(data []byte) error {
 	}
 	var value uint64
 	if err := json.Unmarshal(data, &value); err != nil {
-		return err
+		return fmt.Errorf("assignee_id: %w", err)
 	}
 	n.value = &value
 	return nil

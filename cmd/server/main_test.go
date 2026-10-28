@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -11,10 +12,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/shigabutdinoff/secunda/internal/config"
+	"github.com/redis/go-redis/v9"
 	"go.uber.org/zap"
 
-	"github.com/redis/go-redis/v9"
+	"github.com/shigabutdinoff/secunda/internal/config"
 )
 
 // dead — адрес, где гарантированно никто не слушает.
@@ -56,6 +57,25 @@ func TestHealthUnavailable(t *testing.T) {
 	router(db, rdb, testConfig(), zap.NewNop()).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/health", nil))
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Fatalf("code = %d, want 503", rec.Code)
+	}
+	if want := `{"mysql":"unavailable","redis":"unavailable","status":"unavailable"}`; strings.TrimSpace(rec.Body.String()) != want {
+		t.Fatalf("body = %s, want %s", rec.Body, want)
+	}
+}
+
+func TestPingWithRetry(t *testing.T) {
+	db, err := sql.Open("mysql", "u:p@tcp("+dead+")/app?timeout=1s")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	if err = pingWithRetry(context.Background(), db, []time.Duration{time.Millisecond, time.Millisecond}, zap.NewNop()); err == nil {
+		t.Fatal("ожидалась ошибка после всех повторов")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err = pingWithRetry(ctx, db, []time.Duration{time.Hour}, zap.NewNop()); !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v, want context.Canceled", err)
 	}
 }
 

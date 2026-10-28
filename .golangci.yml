@@ -10,6 +10,9 @@ linters:
     - revive
     - unused
   settings:
+    govet:
+      enable:
+        - shadow
     forbidigo:
       forbid:
         - pattern: ^os\.Exit$

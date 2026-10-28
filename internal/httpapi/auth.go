@@ -16,7 +16,11 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/redis/go-redis/v9"
 	"golang.org/x/crypto/bcrypt"
+	"golang.org/x/sync/singleflight"
 )
+
+// mysqlDuplicateEntry — код ошибки MySQL ER_DUP_ENTRY.
+const mysqlDuplicateEntry = 1062
 
 // Handler содержит зависимости HTTP-обработчиков.
 type Handler struct {
@@ -24,6 +28,7 @@ type Handler struct {
 	cache     *redis.Client
 	jwtSecret []byte
 	now       func() time.Time
+	taskLists singleflight.Group
 }
 
 // NewHandler создаёт Handler с базой данных, Redis и секретом JWT.
@@ -76,7 +81,7 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 		"INSERT INTO users (email, password_hash, name) VALUES (?, ?, ?)", input.Email, hash, input.Name)
 	if err != nil {
 		var mysqlErr *mysql.MySQLError
-		if errors.As(err, &mysqlErr) && mysqlErr.Number == 1062 {
+		if errors.As(err, &mysqlErr) && mysqlErr.Number == mysqlDuplicateEntry {
 			writeError(w, http.StatusConflict, "email already exists")
 			return
 		}
@@ -122,7 +127,7 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 		internalError(w, r, err)
 		return
 	}
-	if err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(input.Password)); err != nil {
+	if err = bcrypt.CompareHashAndPassword([]byte(hash), []byte(input.Password)); err != nil {
 		if errors.Is(err, bcrypt.ErrMismatchedHashAndPassword) {
 			writeError(w, http.StatusUnauthorized, "invalid credentials")
 			return

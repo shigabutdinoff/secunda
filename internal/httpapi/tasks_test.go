@@ -28,6 +28,7 @@ func TestCreateTaskValidation(t *testing.T) {
 		req = req.WithContext(contextWithUserID(req, 42))
 		rec := httptest.NewRecorder()
 		NewHandler(nil, nil, testSecret).CreateTask(rec, req)
+		wantJSON(t, rec)
 		if rec.Code != http.StatusBadRequest {
 			t.Errorf("body %q: status = %d, want 400", body, rec.Code)
 		}
@@ -55,6 +56,7 @@ func TestUpdateTaskValidation(t *testing.T) {
 		req = req.WithContext(contextWithUserID(req, 42))
 		rec := httptest.NewRecorder()
 		NewHandler(nil, nil, testSecret).UpdateTask(rec, req)
+		wantJSON(t, rec)
 		if rec.Code != http.StatusBadRequest {
 			t.Errorf("id %q, body %q: status = %d, want 400", tc.id, tc.body, rec.Code)
 		}
@@ -140,6 +142,7 @@ func TestListTasksValidation(t *testing.T) {
 		req = req.WithContext(contextWithUserID(req, 42))
 		rec := httptest.NewRecorder()
 		NewHandler(nil, nil, testSecret).ListTasks(rec, req)
+		wantJSON(t, rec)
 		if rec.Code != http.StatusBadRequest {
 			t.Errorf("query %q: status = %d, want 400", query, rec.Code)
 		}
@@ -155,6 +158,7 @@ func TestCreateTaskCommentValidation(t *testing.T) {
 		req = req.WithContext(contextWithUserID(req, 42))
 		rec := httptest.NewRecorder()
 		NewHandler(nil, nil, testSecret).CreateTaskComment(rec, req)
+		wantJSON(t, rec)
 		if rec.Code != http.StatusBadRequest {
 			t.Errorf("id %q: status = %d, want 400", id, rec.Code)
 		}
