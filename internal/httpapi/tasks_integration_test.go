@@ -222,7 +222,7 @@ func TestTaskListCacheIntegration(t *testing.T) {
 	defer func() { _ = cache.Close() }()
 	f := newTaskTestFixture(t, cache)
 	t.Cleanup(func() {
-		keys, _ := cache.Keys(t.Context(), "tasks:*:"+fmt.Sprint(f.teamID)+"*").Result()
+		keys, _ := cache.Keys(t.Context(), "tasks:*"+fmt.Sprint(f.teamID)+"*").Result()
 		if len(keys) > 0 {
 			_ = cache.Del(t.Context(), keys...).Err()
 		}
@@ -239,7 +239,7 @@ func TestTaskListCacheIntegration(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &cached); err != nil || len(cached) != 1 || cached[0].ID != first.ID {
 		t.Fatalf("cached list = %s, error = %v", rec.Body, err)
 	}
-	keys, err := cache.Keys(t.Context(), "tasks:list:"+fmt.Sprint(f.teamID)+":*").Result()
+	keys, err := cache.Keys(t.Context(), "tasks:"+fmt.Sprint(f.teamID)+":v*").Result()
 	if err != nil || len(keys) != 1 {
 		t.Fatalf("cache keys = %v, error = %v", keys, err)
 	}
@@ -249,16 +249,16 @@ func TestTaskListCacheIntegration(t *testing.T) {
 	}
 	second := createTaskForTest(t, f, "After invalidation", f.memberID)
 	staleRequest := httptest.NewRequest(http.MethodGet, "/api/v1/tasks", nil)
-	f.handler.storeTaskList(staleRequest, f.teamID, 0, fmt.Sprintf("tasks:list:%d:0::0:20:0", f.teamID), cached)
+	f.handler.storeTaskList(staleRequest, f.teamID, 0, fmt.Sprintf("tasks:%d:v0::0:20:0", f.teamID), cached)
 	rec = listTasksForTest(t, f, f.memberID, "")
 	var refreshed []taskResponse
-	if err := json.Unmarshal(rec.Body.Bytes(), &refreshed); err != nil || len(refreshed) != 3 || refreshed[2].ID != second.ID {
+	if err := json.Unmarshal(rec.Body.Bytes(), &refreshed); err != nil || len(refreshed) != 3 || refreshed[0].ID != second.ID {
 		t.Fatalf("refreshed list = %s, error = %v", rec.Body, err)
 	}
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 	f.handler.invalidateTaskLists(httptest.NewRequest(http.MethodPost, "/api/v1/tasks", nil).WithContext(ctx), f.teamID)
-	generation, err := cache.Get(t.Context(), "tasks:generation:"+fmt.Sprint(f.teamID)).Uint64()
+	generation, err := cache.Get(t.Context(), "tasks:gen:"+fmt.Sprint(f.teamID)).Uint64()
 	if err != nil || generation != 3 {
 		t.Fatalf("generation after canceled invalidation = %d, error = %v; want 3", generation, err)
 	}
@@ -443,7 +443,7 @@ func TestUpdateTaskCacheIntegration(t *testing.T) {
 	defer func() { _ = cache.Close() }()
 	f := newTaskTestFixture(t, cache)
 	t.Cleanup(func() {
-		keys, _ := cache.Keys(t.Context(), "tasks:*:"+fmt.Sprint(f.teamID)+"*").Result()
+		keys, _ := cache.Keys(t.Context(), "tasks:*"+fmt.Sprint(f.teamID)+"*").Result()
 		if len(keys) > 0 {
 			_ = cache.Del(t.Context(), keys...).Err()
 		}

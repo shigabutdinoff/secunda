@@ -6,10 +6,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/redis/go-redis/v9"
 )
 
 type createTaskRequest struct {
@@ -142,11 +145,17 @@ func (h *Handler) ListTasks(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	generation := h.taskCacheGeneration(r.Context(), filter.teamID)
-	cacheKey := fmt.Sprintf("tasks:list:%d:%d:%s:%d:%d:%d", filter.teamID, generation, filter.status, filter.assigneeID, filter.limit, filter.offset)
+	cacheKey := taskListCacheKey(filter, generation)
 	if h.cache != nil {
-		if cached, err := h.cache.Get(r.Context(), cacheKey).Bytes(); err == nil {
+		cached, err := h.cache.Get(r.Context(), cacheKey).Bytes()
+		if err != nil && !errors.Is(err, redis.Nil) {
+			log.Printf("read task list cache: %v", err)
+		}
+		if err == nil {
 			var tasks []taskResponse
-			if json.Unmarshal(cached, &tasks) == nil {
+			if err := json.Unmarshal(cached, &tasks); err != nil {
+				log.Printf("decode task list cache: %v", err)
+			} else {
 				writeJSON(w, http.StatusOK, tasks)
 				return
 			}
@@ -188,11 +197,18 @@ func (h *Handler) ListTasks(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, tasks)
 }
 
+func taskListCacheKey(filter taskListFilter, generation uint64) string {
+	return fmt.Sprintf("tasks:%d:v%d:%s:%d:%d:%d", filter.teamID, generation, filter.status, filter.assigneeID, filter.limit, filter.offset)
+}
+
 func (h *Handler) taskCacheGeneration(ctx context.Context, teamID uint64) uint64 {
 	if h.cache == nil {
 		return 0
 	}
-	generation, _ := h.cache.Get(ctx, fmt.Sprintf("tasks:generation:%d", teamID)).Uint64()
+	generation, err := h.cache.Get(ctx, fmt.Sprintf("tasks:gen:%d", teamID)).Uint64()
+	if err != nil && !errors.Is(err, redis.Nil) {
+		log.Printf("read task cache generation: %v", err)
+	}
 	return generation
 }
 
@@ -204,7 +220,9 @@ func (h *Handler) storeTaskList(r *http.Request, teamID, generation uint64, cach
 	if err != nil {
 		return
 	}
-	_ = h.cache.Set(r.Context(), cacheKey, cached, 5*time.Minute).Err()
+	if err := h.cache.Set(r.Context(), cacheKey, cached, 5*time.Minute).Err(); err != nil {
+		log.Printf("store task list cache: %v", err)
+	}
 }
 
 func (h *Handler) invalidateTaskLists(r *http.Request, teamID uint64) {
@@ -213,7 +231,9 @@ func (h *Handler) invalidateTaskLists(r *http.Request, teamID uint64) {
 	}
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), 2*time.Second)
 	defer cancel()
-	_ = h.cache.Incr(ctx, fmt.Sprintf("tasks:generation:%d", teamID)).Err()
+	if err := h.cache.Incr(ctx, fmt.Sprintf("tasks:gen:%d", teamID)).Err(); err != nil {
+		log.Printf("invalidate task list cache: %v", err)
+	}
 }
 
 func parseTaskListFilter(w http.ResponseWriter, r *http.Request) (taskListFilter, bool) {

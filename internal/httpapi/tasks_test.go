@@ -1,14 +1,18 @@
 package httpapi
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"log"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/redis/go-redis/v9"
 )
 
 func TestCreateTaskValidation(t *testing.T) {
@@ -78,6 +82,48 @@ func TestUpdateTaskAssigneeDecoding(t *testing.T) {
 	}
 	if !assigned.AssigneeID.set || assigned.AssigneeID.value == nil || *assigned.AssigneeID.value != 7 {
 		t.Fatalf("numeric assignee = %+v, want explicit 7", assigned.AssigneeID)
+	}
+}
+
+func TestTaskListCacheKey(t *testing.T) {
+	base := taskListFilter{teamID: 7, limit: 20}
+	for _, tc := range []struct {
+		name       string
+		filter     taskListFilter
+		generation uint64
+		want       string
+	}{
+		{name: "defaults", filter: base, want: "tasks:7:v0::0:20:0"},
+		{name: "team", filter: taskListFilter{teamID: 8, limit: 20}, want: "tasks:8:v0::0:20:0"},
+		{name: "generation", filter: base, generation: 3, want: "tasks:7:v3::0:20:0"},
+		{name: "status", filter: taskListFilter{teamID: 7, status: "done", limit: 20}, want: "tasks:7:v0:done:0:20:0"},
+		{name: "assignee", filter: taskListFilter{teamID: 7, assigneeID: 42, limit: 20}, want: "tasks:7:v0::42:20:0"},
+		{name: "pagination", filter: taskListFilter{teamID: 7, limit: 50, offset: 10}, want: "tasks:7:v0::0:50:10"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := taskListCacheKey(tc.filter, tc.generation); got != tc.want {
+				t.Fatalf("key = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestTaskCacheLogsRedisErrors(t *testing.T) {
+	cache := redis.NewClient(&redis.Options{Addr: "127.0.0.1:1", DialTimeout: 10 * time.Millisecond, MaxRetries: -1})
+	defer func() { _ = cache.Close() }()
+	var logs bytes.Buffer
+	previous := log.Writer()
+	log.SetOutput(&logs)
+	t.Cleanup(func() { log.SetOutput(previous) })
+	h := NewHandler(nil, cache, testSecret)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/tasks", nil)
+	h.taskCacheGeneration(req.Context(), 7)
+	h.storeTaskList(req, 7, 0, "tasks:7:v0::0:20:0", nil)
+	h.invalidateTaskLists(req, 7)
+	for _, operation := range []string{"read task cache generation", "store task list cache", "invalidate task list cache"} {
+		if !strings.Contains(logs.String(), operation) {
+			t.Errorf("logs %q do not contain %q", logs.String(), operation)
+		}
 	}
 }
 
